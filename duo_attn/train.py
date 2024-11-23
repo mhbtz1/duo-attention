@@ -5,6 +5,8 @@ from tqdm import tqdm
 import json
 import wandb
 import matplotlib.pyplot as plt
+
+from huggingface_hub import login
 from llava.duo_attention.duo_attn.utils import (
     get_model,
     parse_args,
@@ -276,7 +278,8 @@ def main(args):
         print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
         config.rope_theta = args.rope_theta
 
-    
+    login(token=os.getenv("HF_API_KEY"))
+
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
         config=config,
