@@ -11,7 +11,7 @@ setting="lr=${lr}-reg=${reg_weight}-ctx=${ctx_len_min}_${ctx_len_max}-multi_pass
 exp_name=${model_name}/${setting}
 
 torchrun --nnodes 1 --nproc_per_node 8 \
-    duo_attn/train.py \
+    /content/llava/duo_attention/duo_attn/train.py \
     --model_name models/${model_name} \
     --batch_size 1 \
     --max_length ${ctx_len_max} \
