@@ -7,7 +7,7 @@ import wandb
 import matplotlib.pyplot as plt
 
 from huggingface_hub import login
-from llava.duo_attention.duo_attn.utils import (
+from duo_attention.duo_attn.utils import (
     get_model,
     parse_args,
     get_tokenizer,
@@ -16,12 +16,12 @@ from llava.duo_attention.duo_attn.utils import (
     save_full_attention_heads,
     seed_everything,
 )
-from llava.duo_attention.duo_attn.data import (
+from duo_attention.duo_attn.data import (
     get_dataset,
     MultiplePasskeyRetrievalDataset,
     get_supervised_dataloader,
 )
-from llava.duo_attention.duo_attn.patch import (
+from duo_attention.duo_attn.patch import (
     enable_duo_attention_training,
     get_full_attention_heads,
     set_full_attention_heads,
@@ -29,7 +29,7 @@ from llava.duo_attention.duo_attn.patch import (
     load_full_attention_heads,
 )
 
-from llava.duo_attention.duo_attn.loss import l1_loss
+from duo_attention.duo_attn.loss import l1_loss
 
 
 import torch.distributed as dist
