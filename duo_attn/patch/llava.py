@@ -6,3 +6,9 @@ def set_llava_full_attention_heads(model):
         module.full_attention_heads.data = full_attention_heads[layer_idx].to(
             module.full_attention_heads.device, module.full_attention_heads.dtype
         )
+
+def get_llava_full_attention_heads(model):
+    pass
+
+def enable_llava_duo_attention_training(model):
+    pass

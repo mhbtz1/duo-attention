@@ -39,7 +39,7 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 )
 import types
 
-from transformers import AutoModelForCausalLM, AutoConfig
+from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
 
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaRMSNorm
 from transformers.models.mistral.modeling_mistral import (
@@ -70,6 +70,11 @@ def apply_fsdp(model: torch.nn.Module, mesh, mp_policy, modules_to_shard):
 
 
 def setup_llava_trainer():
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16
+    )
+
     model_id = "llava-hf/llava-1.5-7b-hf"
     processor = AutoProcessor.from_pretrained(model_id)
     llava = LlavaForConditionalGeneration.from_pretrained(model_id, quantization_config=quantization_config, device_map="auto")
@@ -113,10 +118,12 @@ def train(
             # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
             input_ids = torch.cat([batch["input_ids"], batch["input_ids"]], dim=0)
 
+            # parallelize the processing of context between GPUs
             seq_len = input_ids.shape[1]
             seq_parallel_chunk_size = seq_len // world_size
             seq_parallel_chunk_start = seq_parallel_chunk_size * rank
             seq_parallel_chunk_end = seq_parallel_chunk_start + seq_parallel_chunk_size
+
             position_ids = torch.arange(
                 seq_parallel_chunk_start,
                 seq_parallel_chunk_end,
@@ -269,7 +276,7 @@ def main(args):
         print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
         config.rope_theta = args.rope_theta
 
-
+    
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
         config=config,
@@ -278,6 +285,7 @@ def main(args):
         attn_implementation="eager",
     )
 
+    
     enable_duo_attention_training(
         model,
         args.sink_size,

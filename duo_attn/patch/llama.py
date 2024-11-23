@@ -691,3 +691,4 @@ def map_llama_full_attention_heads(model, func):
             func(module.full_attention_heads)
     else:
         raise ValueError("Model type not supported")
+
