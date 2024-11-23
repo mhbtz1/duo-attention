@@ -5,7 +5,7 @@ from tqdm import tqdm
 import json
 import wandb
 import matplotlib.pyplot as plt
-from duo_attn.utils import (
+from llava.duo_attention.duo_attn.utils import (
     get_model,
     parse_args,
     get_tokenizer,
@@ -14,12 +14,12 @@ from duo_attn.utils import (
     save_full_attention_heads,
     seed_everything,
 )
-from duo_attn.data import (
+from llava.duo_attention.duo_attn.data import (
     get_dataset,
     MultiplePasskeyRetrievalDataset,
     get_supervised_dataloader,
 )
-from duo_attn.patch import (
+from llava.duo_attention.duo_attn.patch import (
     enable_duo_attention_training,
     get_full_attention_heads,
     set_full_attention_heads,
@@ -27,7 +27,7 @@ from duo_attn.patch import (
     load_full_attention_heads,
 )
 
-from duo_attn.loss import l1_loss
+from llava.duo_attention.duo_attn.loss import l1_loss
 
 
 import torch.distributed as dist
@@ -69,8 +69,15 @@ def apply_fsdp(model: torch.nn.Module, mesh, mp_policy, modules_to_shard):
     fully_shard(model, **fsdp_config)
 
 
+def setup_llava_trainer():
+    model_id = "llava-hf/llava-1.5-7b-hf"
+    processor = AutoProcessor.from_pretrained(model_id)
+    llava = LlavaForConditionalGeneration.from_pretrained(model_id, quantization_config=quantization_config, device_map="auto")
+    return (processor, llava)
+
+
 def train(
-    args, model, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
+    args, model : torch.nn.Module, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
 ):
     model.train()
 
@@ -103,7 +110,7 @@ def train(
 
             batch = {k: v.to(f"cuda:{local_rank}") for k, v in batch.items()}
 
-            # duplicate for the two way forward
+            # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
             input_ids = torch.cat([batch["input_ids"], batch["input_ids"]], dim=0)
 
             seq_len = input_ids.shape[1]
@@ -261,6 +268,7 @@ def main(args):
     if args.rope_theta is not None:
         print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
         config.rope_theta = args.rope_theta
+
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
