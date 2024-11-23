@@ -12,7 +12,7 @@ exp_name=${model_name}/${setting}
 
 torchrun --nnodes 1 --nproc_per_node 8 \
     /content/llava/duo_attention/duo_attn/train.py \
-    --model_name models/${model_name} \
+    --model_name ${model_name} \
     --batch_size 1 \
     --max_length ${ctx_len_max} \
     --dataset_name "datasets/booksum.jsonl.zst" \
