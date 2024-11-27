@@ -5,9 +5,10 @@ from tqdm import tqdm
 import json
 import wandb
 import matplotlib.pyplot as plt
-
+import sys
+print(sys.path)
 from huggingface_hub import login
-from duo_attention.duo_attn.utils import (
+from duo_attn.utils import (
     get_model,
     parse_args,
     get_tokenizer,
@@ -16,12 +17,12 @@ from duo_attention.duo_attn.utils import (
     save_full_attention_heads,
     seed_everything,
 )
-from duo_attention.duo_attn.data import (
+from duo_attn.data import (
     get_dataset,
     MultiplePasskeyRetrievalDataset,
     get_supervised_dataloader,
 )
-from duo_attention.duo_attn.patch import (
+from duo_attn.patch import (
     enable_duo_attention_training,
     get_full_attention_heads,
     set_full_attention_heads,
@@ -29,7 +30,7 @@ from duo_attention.duo_attn.patch import (
     load_full_attention_heads,
 )
 
-from duo_attention.duo_attn.loss import l1_loss
+from duo_attn.loss import l1_loss
 
 
 import torch.distributed as dist
@@ -262,6 +263,7 @@ def main(args):
     local_rank = int(os.environ["LOCAL_RANK"])
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
+    use_llava = int(os.environ["USE_LLAVA"])
 
     if rank == 0:
         if args.output_dir is not None:
@@ -287,8 +289,15 @@ def main(args):
         low_cpu_mem_usage=True,
         attn_implementation="eager",
     )
+    if USE_LLAVA:
+        model = LLavaForConditionalGeneration.from_pretrained(
+            "llava-hf/llava-1.5-7b-hf", 
+            config=config, 
+            low_cpu_mem_usage=True, 
+            attn_implementation="eager"
+        )
 
-    
+
     enable_duo_attention_training(
         model,
         args.sink_size,
