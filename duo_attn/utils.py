@@ -13,7 +13,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="kv_reduction")
 
     parser.add_argument(
-        "--model_name", type=str, default="/home/guangxuanx/models/LLaMA-2-7B-32K"
+        "--model_name", type=str, default="llava-hf/llava-1.5-7b-hf"
     )
     parser.add_argument("--config_name", type=str, default=None)
 

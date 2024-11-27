@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 
 import torch
 import torch.functional as F
-
+from transformers import LlavaForConditionalGeneration
 from transformers.models.llama.modeling_llama import (
     LlamaForCausalLM,
     CausalLMOutputWithPast,
@@ -508,6 +508,24 @@ def enable_tuple_kv_cache_for_llama(model: LlamaForCausalLM):
             _flash_attention_forward, model.model.layers[idx].self_attn
         )
     model.forward = types.MethodType(old_llama_for_causal_lm_forward, model)
+
+def enable_tuple_kv_cache_for_llava(model: LlavaForConditionalGeneration):
+    print(dir(model))
+    print("Enabling tuple KV cache for Llava")
+    for idx in range(len(model.language_model.layers)):
+        model.language_model.layers[idx].forward = types.MethodType(
+            old_llama_decoder_layer_forward, model.model.layers[idx]
+        )
+        model.language_model.layers[idx].self_attn.forward = types.MethodType(
+            old_flash_attention_2_forward, model.model.layers[idx].self_attn
+        )
+        model.language_model.layers[idx].self_attn._upad_input = types.MethodType(
+            _upad_input, model.model.layers[idx].self_attn
+        )
+        model.language_model.layers[idx].self_attn._flash_attention_forward = types.MethodType(
+            _flash_attention_forward, model.model.layers[idx].self_attn
+        )
+    
 
 
 # From Huggingface's Transformers v4.34.0. This is the forward method of MistralForCausalLM using the tuple style KV cache.

@@ -42,7 +42,7 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 )
 import types
 
-from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration
 
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaRMSNorm
 from transformers.models.mistral.modeling_mistral import (
@@ -282,19 +282,20 @@ def main(args):
 
     login(token=os.getenv("HF_API_KEY"))
 
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_name,
-        config=config,
-        torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,
-        attn_implementation="eager",
-    )
-    if USE_LLAVA:
-        model = LLavaForConditionalGeneration.from_pretrained(
+    if use_llava:
+        model = LlavaForConditionalGeneration.from_pretrained(
             "llava-hf/llava-1.5-7b-hf", 
             config=config, 
             low_cpu_mem_usage=True, 
             attn_implementation="eager"
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name,
+            config=config,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            attn_implementation="eager",
         )
 
 
