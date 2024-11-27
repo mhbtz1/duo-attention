@@ -1,6 +1,11 @@
+import os
+import types
+import torch
+import torch.nn as nn
+
 from .tuple_kv_cache import enable_tuple_kv_cache_for_llava
 from tensor_parallel import TensorParallelPreTrainedModel
-from transformers import LlavaForConditionalGeneration
+from transformers import LlavaForConditionalGeneration, AutoConfig
 
 from transformers.models.llama.modeling_llama import (
     LlamaForCausalLM,
@@ -23,6 +28,12 @@ from .streaming_attn import (
     streaming_attn_blocksparse_flash_attn,
 )
 
+from .llama import (
+    llama_duo_attention_forward_two_way,
+    llama_duo_attention_forward_one_way_reordered,
+    llama_duo_attention_forward_one_way_reordered_static,
+)
+
 from .static_kv_cache import (
     DuoAttentionStaticKVCache,
     enable_duo_attention_static_kv_cache_for_llama,
@@ -35,9 +46,8 @@ from flash_attn import flash_attn_func, flash_attn_with_kvcache
 from duo_attn.ulysses import UlyssesAttention
 
 
-
 def set_llava_full_attention_heads(model):
-    for layer_idx, layer in enumerate(model.model.layers):
+    for layer_idx, layer in enumerate(model.language_model.model.layers):
         if not hasattr(params, "full_attention_heads"):
             continue    
         module = layer.self_attn
@@ -98,11 +108,12 @@ def enable_llava_duo_attention_training(
     enable_tuple_kv_cache_for_llava(model)
     device = next(model.parameters()).device
     dtype = next(model.parameters()).dtype
-
+    llava_config = AutoConfig.from_pretrained(model.config.name_or_path)
+    
     if streaming_attn_implementation == "blocksparse":
         num_sink_blocks = (sink_size + 127) // 128
         num_recent_blocks = (recent_size + 127) // 128
-        num_heads_per_device = model.config.num_attention_heads // int(
+        num_heads_per_device = llava_config.text_config.num_attention_heads // int(
             os.environ["WORLD_SIZE"]
         )
         print(
@@ -122,9 +133,9 @@ def enable_llava_duo_attention_training(
             f"Unsupported streaming attention implementation: {streaming_attn_implementation}"
         )
 
-    for layer in model.model.layers:
+    for layer in model.language_model.model.layers:
         module = layer.self_attn
-        module.forward = types.MethodType(llava_duo_attention_forward_two_way, module)
+        module.forward = types.MethodType(llama_duo_attention_forward_two_way, module)
         module.sink_size = sink_size
         module.recent_size = recent_size
         module.register_parameter(
@@ -162,7 +173,7 @@ def enable_llava_duo_attention_eval(
 
     device = next(model.parameters()).device
     dtype = next(model.parameters()).dtype
-    for idx, layer in enumerate(model.model.layers):
+    for idx, layer in enumerate(model.language_model.model.layers):
         module = layer.self_attn
         layer_full_attention_heads = torch.tensor(
             full_attention_heads[idx], device=device, dtype=dtype
@@ -205,8 +216,8 @@ def enable_llava_duo_attention_eval(
         )
 
 
-def enable_llama_duo_attention_static_kv_cache_eval(
-    model: LlamaForCausalLM,
+def enable_llava_duo_attention_static_kv_cache_eval(
+    model: LlavaForConditionalGeneration,
     full_attention_heads,
 ):
     enable_duo_attention_static_kv_cache_for_llama(model)
@@ -249,7 +260,7 @@ def enable_llama_duo_attention_static_kv_cache_eval(
         )
 
 
-def get_llama_full_attention_heads(model):
+def get_llava_full_attention_heads(model: LlavaForConditionalGeneration):
     full_attention_heads = []
     if isinstance(model, TensorParallelPreTrainedModel):
         for shard in model.wrapped_model.module_shards:
@@ -289,7 +300,7 @@ def get_llama_full_attention_heads(model):
     return full_attention_heads
 
 
-def set_llama_full_attention_heads(model, full_attention_heads):
+def set_llava_full_attention_heads(model: LlavaForConditionalGeneration, full_attention_heads):
     if isinstance(model, TensorParallelPreTrainedModel):
         for shard in model.wrapped_model.module_shards:
             for layer_idx, layer in enumerate(shard.model.layers):
@@ -300,16 +311,16 @@ def set_llama_full_attention_heads(model, full_attention_heads):
                     module.full_attention_heads.device,
                     module.full_attention_heads.dtype,
                 )
-    elif isinstance(model, LlamaForCausalLM):
-        for layer_idx, layer in enumerate(model.model.layers):
+    elif isinstance(model.language_model, LlamaForCausalLM):
+        for layer_idx, layer in enumerate(model.language_model.model.layers):
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
                 continue
             module.full_attention_heads.data = full_attention_heads[layer_idx].to(
                 module.full_attention_heads.device, module.full_attention_heads.dtype
             )
-    elif isinstance(model, LlamaModel):
-        for layer_idx, layer in enumerate(model.layers):
+    elif isinstance(model.language_model, LlamaModel):
+        for layer_idx, layer in enumerate(model.language_model.layers):
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
                 continue
@@ -320,22 +331,22 @@ def set_llama_full_attention_heads(model, full_attention_heads):
         raise ValueError("Model type not supported")
 
 
-def map_llava_full_attention_heads(model, func):
-    if isinstance(model, TensorParallelPreTrainedModel):
-        for shard in model.wrapped_model.module_shards:
+def map_llava_full_attention_heads(model: LlavaForConditionalGeneration, func):
+    if isinstance(model.language_model, TensorParallelPreTrainedModel):
+        for shard in model.language_model.wrapped_model.module_shards:
             for layer in shard.model.layers:
                 module = layer.self_attn.tp_wrapped_module
                 if not hasattr(module, "full_attention_heads"):
                     continue
                 func(module.full_attention_heads)
-    elif isinstance(model, LlamaForCausalLM):
-        for layer in model.model.layers:
+    elif isinstance(model.language_model, LlamaForCausalLM):
+        for layer in model.language_model.model.layers:
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
                 continue
             func(module.full_attention_heads)
-    elif isinstance(model, LlamaModel):
-        for layer in model.layers:
+    elif isinstance(model.language_model, LlamaModel):
+        for layer in model.language_model.layers:
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
                 continue

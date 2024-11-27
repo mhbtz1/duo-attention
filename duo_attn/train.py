@@ -309,7 +309,7 @@ def main(args):
         streaming_attn_implementation=args.streaming_attn_implementation,
     )
 
-    model = model.model
+    model = model.language_model if use_llava else model.model
 
     for param in model.parameters():
         param.requires_grad = False
