@@ -129,4 +129,4 @@ if __name__ == '__main__':
             with open(filepath, 'rb') as test_f:
                 return test_f.read(2) == b'\x1f\x8b'
 
-        print(f"Is file gzipped: {"yes" if is_gz_file(os.path.join(os.environ["ROOT_DIR"], 'passkey_images.json.gz')) else "no"}")
+        print(f"Is file gzipped: {'yes' if is_gz_file(os.path.join(os.environ['ROOT_DIR'], 'passkey_images.json.gz')) else 'no'}")
