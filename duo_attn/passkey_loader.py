@@ -120,7 +120,13 @@ if __name__ == '__main__':
         pth = os.path.join(os.environ["ROOT_DIR"], 'passkey_images.json.gz')
         lines = gzip.open(pth, 'rt').readlines()
         dataset = get_dataset(os.path.join(os.environ["ROOT_DIR"], 'passkey_images.json.gz'))
-        print("Finishing fetching dataset in-memory")
-        dataset.set_format(type="torch", columns=["input_values", "labels"])
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=4)
-        print(dataloader[0])
+        print(f"type(dataset): {type(dataset)}")
+        print(f"split: {dataset.split}")
+        print(f"features: {dataset.features}")
+        print(f"info: {dataset.info}")
+
+        def is_gz_file(filepath):
+            with open(filepath, 'rb') as test_f:
+                return test_f.read(2) == b'\x1f\x8b'
+
+        print(f"Is file gzipped: {"yes" if is_gz_file(os.path.join(os.environ["ROOT_DIR"], 'passkey_images.json.gz')) else "no"}")
