@@ -111,7 +111,7 @@ def save_dataset_compressed(data_dicts: List[Dict[str, Any]], output_path: str):
 
 if __name__ == '__main__':
     if 'DECOMPRESS' not in os.environ.keys():
-        proc = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf', revision='v4.45.2')
+        proc = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
         output_dir = os.path.join(os.environ['ROOT_DIR'], 'passkey_images.json.gz')
         dataset = PasskeyDataset(proc)
         save_as_hf_dataset_advanced(dataset, output_dir)
