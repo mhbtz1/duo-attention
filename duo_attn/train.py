@@ -44,7 +44,7 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 )
 import types
 
-from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration
+from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration, AutoProcessor
 
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaRMSNorm
 from transformers.models.mistral.modeling_mistral import (
