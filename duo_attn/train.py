@@ -40,7 +40,7 @@ import torch.distributed as dist
 from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed._tensor import DeviceMesh
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    apply_activation_checkpointing,
+    apply_activation_checkpointing
 )
 import types
 
