@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import sys
 print(sys.path)
 from huggingface_hub import login
-from duo_attn.utils import (
+from utils import (
     get_model,
     parse_args,
     get_tokenizer,
@@ -29,6 +29,8 @@ from duo_attn.patch import (
     map_full_attention_heads,
     load_full_attention_heads,
 )
+
+from duo_attn.passkey_loader import PasskeyDataset
 
 from duo_attn.loss import l1_loss
 
@@ -363,6 +365,8 @@ def main(args):
             depth_ratio_num_intervals=args.depth_ratio_num_intervals,
             num_passkeys=args.num_passkeys,
         )
+    elif args.dataset_format == "multiple_image_passkey":
+        train_dataset = 
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
 

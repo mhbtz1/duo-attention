@@ -23,7 +23,7 @@ def parse_args():
         type=str,
         default="/content/llava/passkey_images.json.gz",
     )
-    parser.add_argument("--dataset_format", type=str, default="multiple_passkey")
+    parser.add_argument("--dataset_format", type=str, default="multiple_image_passkey")
     parser.add_argument("--split", type=str, default="train")
     parser.add_argument("--lr", type=float, default=1e-1)
     parser.add_argument("--num_steps", type=int, default=1000)
