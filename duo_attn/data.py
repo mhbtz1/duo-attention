@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, IterableDataset
 
 
 def get_dataset(dataset_name, split="train", size=None):
-    dataset = load_dataset("json", data_files=dataset_name, split_column=split)
+    dataset = load_dataset("json", data_files=dataset_name, split=split)
     if size is not None:
         dataset = dataset.select(range(size))
     return dataset
