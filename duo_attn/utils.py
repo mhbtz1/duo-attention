@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument(
         "--dataset_name",
         type=str,
-        default="/home/guangxuanx/datasets/Long-Data-Collections/pretrain/pile_sub.jsonl.zst",
+        default="/content/llava/passkey_images.gz",
     )
     parser.add_argument("--dataset_format", type=str, default="multiple_passkey")
     parser.add_argument("--split", type=str, default="train")
