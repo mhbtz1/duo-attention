@@ -42,7 +42,7 @@ class PasskeyDataset(torch.utils.data.Dataset):
         return len(self.all_images)
 
     def __getitem__(self, idx):
-        tokenized_input = self.processor(images=[self.all_images[idx]], text=self.all_prompts[idx], padding=True, return_tensors="pt").to(self.device)
+        tokenized_input = self.processor(images=self.all_images[idx], text=self.all_prompts[idx], padding=True, return_tensors="pt").to(self.device)
         print(tokenized_input['input_ids'].shape, tokenized_input['attention_mask'].shape, tokenized_input['pixel_values'].shape)
         processor_tuple = (tokenized_input["input_ids"].tolist(), tokenized_input["attention_mask"].tolist(), tokenized_input["pixel_values"].tolist())
         return processor_tuple, self.all_prompts[idx] # by default, just make the VLM mimic its text output
