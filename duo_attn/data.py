@@ -278,7 +278,7 @@ class DataCollator(object):
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         input_ids, labels = tuple(
-            [instance[key] for instance in instances] for key in ("input_ids", "labels")
+            ([instance["tokenized_input"][key] for instance in instances] + instance["response"]) for key in ("input_ids", "pixel_values", "attention_mask")
         )
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id

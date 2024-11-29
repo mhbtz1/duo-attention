@@ -286,9 +286,16 @@ def to_device(
 
 
 def get_tokenizer(tokenizer_name):
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        tokenizer_name, use_fast=False, trust_remote_code=True
-    )
+    try:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
+            tokenizer_name, use_fast=False, trust_remote_code=True
+        )
+    except:
+        print(f"Trying {tokenizer_name} as a VLM...")
+        try:
+            tokenizer = transformers.AutoProcessor.from_pretrained(tokenizer_name).tokenizer
+        except Exception as e:
+            print(f"No tokenizer found for tokenizer_name {tokenizer_name}. Error message: {e}")
 
     if tokenizer.pad_token_id is None:
         if tokenizer.eos_token_id is not None:
