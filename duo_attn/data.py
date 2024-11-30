@@ -5,6 +5,7 @@ from typing import Sequence, Dict
 
 import torch
 import transformers
+from transformers import AutoProcessor, CLIPImageProcessor, CLIPVisionModel
 from torch.utils.data import Dataset, IterableDataset
 
 
@@ -273,21 +274,40 @@ class MultiplePasskeyRetrievalDataset(Dataset):
 @dataclass
 class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
+    '''
+    def __init__(self, tokenizer, image_processor):
+        self.tokenizer = tokenizer
+        self.image_processor = image_processor
+    '''
     
-    tokenizer: transformers.PreTrainedTokenizer
+    def __init__(self):
+        self.processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
 
+    '''
+    tokenizer: transformers.models.llama.tokenization_llama_fast.LlamaTokenizerFast
+    image_processor: transformers.CLIPImageProcessor
+    '''
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         #print(f"len(instances): {len(instances)}")
-        
+        image_processor, tokenizer = self.processor.image_processor, self.processor.tokenizer
         image, prompt, label = tuple(
-            torch.tensor(instances[0].get(key, [])) for key in ["image", "prompt", "label"]
+            torch.tensor(instances[0].get(key, [])) if type(instances[0].get(key, [])) == list else instances[0].get(key, []) for key in ["image", "prompt", "label"]
         )
+        print(f"image shape: {image.size()}")
+        print(f"type of tokenizer: {type(tokenizer)}")
+        print(f"label type: {type(label)}")
+        processed_context = self.processor(images=image, text=prompt, padding=True, return_tensors="pt")
+        label = tokenizer.encode(label, return_tensors="pt")
+        input_ids = processed_context.input_ids
+        attention_mask = processed_context.attention_mask
+
         input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+            input_ids, batch_first=True, padding_value=tokenizer.pad_token_id
         )
-        labels = torch.nn.utils.rnn.pad_sequence(
-            labels, batch_first=True, padding_value=-100
+        label = torch.nn.utils.rnn.pad_sequence(
+            label, batch_first=True, padding_value=-100
         )
+
         #print(f"type(input_ids): {type(input_ids)}")
         #print(f"type(labels): {type(labels)}")
         #print(f"type(pixel_values): {type(pixel_values)}")
@@ -295,8 +315,8 @@ class DataCollator(object):
 
 
         ret_dict = dict(
-            image=input_ids,
-            prompt=prompt,
+            input_ids=input_ids,
+            attention_mask=prompt,
             label=label,
         )
         '''
@@ -310,7 +330,7 @@ class DataCollator(object):
 def get_supervised_dataloader(
     dataset, tokenizer, batch_size, num_workers=4, shuffle=True, sampler=None
 ):
-    collator = DataCollator(tokenizer)    
+    collator = DataCollator()    
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
