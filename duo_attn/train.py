@@ -428,8 +428,9 @@ def main(args):
             num_passkeys=args.num_passkeys,
         )
     elif args.dataset_format == "multiple_image_passkey":
-        proc = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
-        train_dataset = PasskeyDataset(processor=proc)
+        processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
+        image_processor, tokenizer = processor.image_processor, processor.tokenizer
+        train_dataset = PasskeyDataset(processor=processor)
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
 

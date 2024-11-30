@@ -332,6 +332,8 @@ def set_llava_full_attention_heads(model: LlavaForConditionalGeneration, full_at
 
 
 def map_llava_full_attention_heads(model: LlavaForConditionalGeneration, func):
+    print(f"type(model.language_model): {type(model.language_model)}")
+    print(f"type(model): {type(model)}")
     if isinstance(model.language_model, TensorParallelPreTrainedModel):
         for shard in model.language_model.wrapped_model.module_shards:
             for layer in shard.model.layers:

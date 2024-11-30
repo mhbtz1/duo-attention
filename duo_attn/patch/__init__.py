@@ -60,7 +60,7 @@ def enable_duo_attention_training(
             enable_ulysses_attention=enable_ulysses_attention,
             streaming_attn_implementation=streaming_attn_implementation,
         )
-    elif "llava" in model.config.model_type:
+    elif "llava" == model.config.model_type:
         enable_llava_duo_attention_training(
             model,
             sink_size, 
@@ -98,7 +98,7 @@ def enable_duo_attention_eval(
             sink_size,
             recent_size,
         )
-    elif "llava" in model.config.model_type:
+    elif "llava" == model.config.model_type:
         enable_llava_duo_attention_eval(
             model, 
             full_attention_heads,
@@ -114,8 +114,8 @@ def get_full_attention_heads(model):
         return get_llama_full_attention_heads(model)
     elif "mistral" in model.config.model_type or "mixtral" in model.config.model_type:
         return get_mistral_full_attention_heads(model)
-    elif "llava" in model.config.model_type:
-        return get_llaval_full_attention_heads(model)
+    elif "llava" == model.config.model_type:
+        return get_llava_full_attention_heads(model)
     else:
         raise ValueError(f"Model type {model.config.model_type} not supported")
 
@@ -125,7 +125,7 @@ def set_full_attention_heads(model, full_attention_heads):
         model = set_llama_full_attention_heads(model, full_attention_heads)
     elif "mistral" in model.config.model_type or "mixtral" in model.config.model_type:
         model = set_mistral_full_attention_heads(model, full_attention_heads)
-    elif "llava" in model.config.model_type:
+    elif "llava" == model.config.model_type:
         model = set_llava_full_attention_heads(model, full_attention_heads)
     else:
         raise ValueError(f"Model type {model.config.model_type} not supported")
@@ -133,12 +133,13 @@ def set_full_attention_heads(model, full_attention_heads):
 
 
 def map_full_attention_heads(model, func):
+    print(f"model type: {model.config.model_type}, {type(model.config.model_type)}")
     if "llama" in model.config.model_type:
         return map_llama_full_attention_heads(model, func)
     elif "mistral" in model.config.model_type or "mixtral" in model.config.model_type:
         return map_mistral_full_attention_heads(model, func)
-    elif "llava" in model.config.model_type:
-        return map_llaval_full_attention_heads(model, func)
+    elif "llava" == model.config.model_type:
+        return map_llava_full_attention_heads(model, func)
     else:
         raise ValueError(f"Model type {model.config.model_type} not supported")
 
