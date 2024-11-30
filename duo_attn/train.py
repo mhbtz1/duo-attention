@@ -94,7 +94,7 @@ def convert_image_tensor_to_llava_tokens(
     # Add batch dimension if not present
     if len(image_tensor.shape) == 3:
         image_tensor = image_tensor.unsqueeze(0)
-    
+
     batch_size = image_tensor.shape[0]
     # Resize image to target size
     if image_tensor.shape[-2:] != (image_size, image_size):
@@ -104,21 +104,21 @@ def convert_image_tensor_to_llava_tokens(
             mode='bilinear',
             align_corners=False
         )
-    
+
     # Reshape into patches
     patches = image_tensor.unfold(2, patch_size, patch_size).unfold(3, patch_size, patch_size)
     patches = patches.permute(0, 2, 3, 1, 4, 5)
-    
+
     # Calculate number of patches in each dimension
     num_patches = image_size // patch_size
-    
+
     # Reshape into sequence of flattened patches
     image_tokens = patches.reshape(
         batch_size,
         num_patches * num_patches,
         num_channels * patch_size * patch_size
     )
-    
+
     return image_tokens
 
 
@@ -169,7 +169,7 @@ def train(
             batch["pixel_values"] = convert_image_tensor_to_llava_tokens(batch["pixel_values"])
             # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
             input_ids = torch.cat([torch.cat([batch["input_ids"], batch["pixel_values"]], dim=1), torch.cat([batch["input_ids"], batch["pixel_values"]], dim=1)], dim=0)
-            
+
             # parallelize the processing of context between GPUs
             seq_len = input_ids.shape[1]
             seq_parallel_chunk_size = seq_len // world_size
@@ -342,9 +342,9 @@ def main(args):
 
     if use_llava:
         model = LlavaForConditionalGeneration.from_pretrained(
-            "llava-hf/llava-1.5-7b-hf", 
-            config=config, 
-            low_cpu_mem_usage=True, 
+            "llava-hf/llava-1.5-7b-hf",
+            config=config,
+            low_cpu_mem_usage=True,
             attn_implementation="eager"
         )
     else:
