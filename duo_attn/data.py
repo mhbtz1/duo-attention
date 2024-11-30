@@ -275,19 +275,33 @@ class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
     
     tokenizer: transformers.PreTrainedTokenizer
+    processor: transformers.AutoProcessor
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         #print(f"len(instances): {len(instances)}")
         
         image, prompt, label = tuple(
-            torch.tensor(instances[0].get(key, [])) for key in ["image", "prompt", "label"]
+            torch.tensor(instances[0].get(key, [])) if type(instances[0].get(key, [])) == list else instances[0].get(key, []) for key in ["image", "prompt", "label"]
         )
+        img_proc = image_processor(images=image, return_tensor="pt")
+        prompt.replace('<image>', img_proc)
+        prompt = tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    max_length=1048576,
+                    padding="max_length",
+                    truncation=True)
+        input_ids = prompt.input_ids
+        attention_mask = prompt.attention_mask
+        labels = prompt.label
+
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
         )
-        labels = torch.nn.utils.rnn.pad_sequence(
-            labels, batch_first=True, padding_value=-100
+        label = torch.nn.utils.rnn.pad_sequence(
+            label, batch_first=True, padding_value=-100
         )
+
         #print(f"type(input_ids): {type(input_ids)}")
         #print(f"type(labels): {type(labels)}")
         #print(f"type(pixel_values): {type(pixel_values)}")
@@ -295,8 +309,8 @@ class DataCollator(object):
 
 
         ret_dict = dict(
-            image=input_ids,
-            prompt=prompt,
+            input_ids=input_ids,
+            attention_mask=prompt,
             label=label,
         )
         '''
@@ -308,9 +322,9 @@ class DataCollator(object):
 
 
 def get_supervised_dataloader(
-    dataset, tokenizer, batch_size, num_workers=4, shuffle=True, sampler=None
+    dataset, tokenizer, batch_size, image_processor=None, num_workers=4, shuffle=True, sampler=None
 ):
-    collator = DataCollator(tokenizer)    
+    collator = DataCollator(tokenizer, processor)    
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,

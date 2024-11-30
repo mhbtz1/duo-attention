@@ -44,7 +44,7 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 )
 import types
 
-from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration, AutoProcessor, CLIPImageProcessor, AutoTokenizer
 
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaRMSNorm, LlamaForCausalLM
 from transformers.models.mistral.modeling_mistral import (
@@ -130,11 +130,6 @@ def train(
     if int(os.environ["USE_LLAVA"]):
         for params in model.multi_modal_projector.parameters():
             params.requires_grad = False
-        image_processor = CLIPImageProcessor.from_pretrained(
-            'llava-hf/llava-1.5-7b-hf',
-            size={"height": 336, "width": 336}
-        )
-        tokenizer = AutoTokenizer.from_pretrained('llava-hf/llava-1.5-7b-hf')
 
     if rank == 0:
         pbar = tqdm(range(args.num_steps))
@@ -165,21 +160,6 @@ def train(
             map_full_attention_heads(model, func=lambda x: clamp_(x, 0, 1))
             # currently not backwards compatible with LlamaForCausalLM, will fix later
 
-            img = image_processor(batch["image"], return_tensor="pt")
-            batch["prompt"].replace("<image>", batch["image"])
-            data = tokenizer(
-                batch["prompt"],
-                return_tensors="pt",
-                max_length=1048576,
-                padding="max_length",
-                truncation=True
-            )
-            del batch["image"]
-            del batch["prompt"]
-
-            batch["input_ids"] = data.input_ids
-            batch["attention_mask"] = data.attention_mask
-            batch["pixel_values"] = data.pixel_values
             batch = {k: v.to(f"cuda:{local_rank}") for k, v in batch.items()}
 
             # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
@@ -219,7 +199,7 @@ def train(
                 )
             elif (isinstance(model, LlamaForCausalLM)):
                 outputs = model(
-                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end]
+                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end],
                     position_ids=position_ids
                 )
 
