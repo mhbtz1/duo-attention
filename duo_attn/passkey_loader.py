@@ -21,13 +21,13 @@ class PasskeyDataset(torch.utils.data.Dataset):
         self.processor = processor
         self.transform = transforms.Compose([
             transforms.ToTensor()
-        ])
+        ])  
 
         # note: some weird issue with pixel_values being empty after applying self.processor, might be some issue with images      
         self.all_images = [self.transform(Image.open(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"), file))) 
                         for file in os.listdir(os.path.join(os.environ["ROOT_DIR"], "augmented_images"))]
         self.all_prompts = ["This is a placeholder prompt. Answer how you see fit." for _ in range(len(self.all_images))]
-        
+        self.response = [processor.tokenizer.encode(self.all_prompts[i], return_tensors="pt") for i in range(len(self.all_prompts))]
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         ridx = random.randint(0, len(self.all_images)-1)
@@ -43,9 +43,10 @@ class PasskeyDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         tokenized_input = self.processor(images=self.all_images[idx], text=self.all_prompts[idx], padding=True, return_tensors="pt")
-        print(tokenized_input['input_ids'].shape, tokenized_input['attention_mask'].shape, tokenized_input['pixel_values'].shape)
-        processor_tuple = (tokenized_input["input_ids"].tolist(), tokenized_input["attention_mask"].tolist(), tokenized_input["pixel_values"].tolist())
-        return processor_tuple, self.all_prompts[idx] # by default, just make the VLM mimic its text output
+        #print(tokenized_input['input_ids'].shape, tokenized_input['attention_mask'].shape, tokenized_input['pixel_values'].shape)
+        processor_dict = dict({"input_ids": tokenized_input["input_ids"].tolist(), "attention_mask": tokenized_input["attention_mask"].tolist(), 
+        "pixel_values": tokenized_input["pixel_values"].tolist(), "label": self.response[idx].tolist()})
+        return processor_dict  # by default, just make the VLM mimic its text output
 
 
 def save_as_hf_dataset_advanced(
@@ -84,19 +85,7 @@ def save_as_hf_dataset_advanced(
     
     with gzip.open(output_path, 'wt') as f:
         for idx, element in enumerate(data_dicts):
-            tok = element['tokenized_input']
-            print(len(tok))
-            if len(tok[0]) == 0:
-                print(f"input_ids on index {idx} invalid, skipping...")
-                continue
-            if len(tok[1]) == 0:
-                print(f"pixel values on index {idx} invalid, skipping...")
-                continue
-            if len(tok[2]) == 0:
-                print(f"attention mask on index {idx} invalid, skipping...")
-                continue
-
-            train_dict = {'input_ids': tok[0], 'pixel_values': tok[1], 'attention_mask' : tok[2], 'split': 'train'}
+            train_dict = {**element, 'split': 'train'}
             json.dump(train_dict, f)
             f.write("\n")
     

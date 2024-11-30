@@ -46,7 +46,7 @@ import types
 
 from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration, AutoProcessor
 
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaRMSNorm
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaRMSNorm, LlamaForCausalLM
 from transformers.models.mistral.modeling_mistral import (
     MistralDecoderLayer,
     MistralRMSNorm,
@@ -85,11 +85,51 @@ def setup_llava_trainer():
     llava = LlavaForConditionalGeneration.from_pretrained(model_id, quantization_config=quantization_config, device_map="auto")
     return (processor, llava)
 
+def convert_image_tensor_to_llava_tokens(
+    image_tensor: torch.Tensor,
+    image_size: int = 336,
+    patch_size: int = 14,
+    num_channels: int = 3
+) -> torch.Tensor:
+    # Add batch dimension if not present
+    if len(image_tensor.shape) == 3:
+        image_tensor = image_tensor.unsqueeze(0)
+    
+    batch_size = image_tensor.shape[0]
+    # Resize image to target size
+    if image_tensor.shape[-2:] != (image_size, image_size):
+        image_tensor = F.interpolate(
+            image_tensor,
+            size=(image_size, image_size),
+            mode='bilinear',
+            align_corners=False
+        )
+    
+    # Reshape into patches
+    patches = image_tensor.unfold(2, patch_size, patch_size).unfold(3, patch_size, patch_size)
+    patches = patches.permute(0, 2, 3, 1, 4, 5)
+    
+    # Calculate number of patches in each dimension
+    num_patches = image_size // patch_size
+    
+    # Reshape into sequence of flattened patches
+    image_tokens = patches.reshape(
+        batch_size,
+        num_patches * num_patches,
+        num_channels * patch_size * patch_size
+    )
+    
+    return image_tokens
+
+
 
 def train(
-    args, model : torch.nn.Module, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
+    args, model : LlavaForConditionalGeneration, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
 ):
     model.train()
+    if int(os.environ["USE_LLAVA"]):
+        for params in model.multi_modal_projector.parameters():
+            params.requires_grad = False
 
     if rank == 0:
         pbar = tqdm(range(args.num_steps))
@@ -103,6 +143,7 @@ def train(
         if global_step >= args.num_steps:
             break
         for step, batch in enumerate(train_dataloader):
+            print(f"step {step} batch size: {len(batch.items())}, batch keys: {batch.keys()}")
             if global_step <= resume_step:
                 global_step += 1
                 if rank == 0:
@@ -119,15 +160,26 @@ def train(
             map_full_attention_heads(model, func=lambda x: clamp_(x, 0, 1))
 
             batch = {k: v.to(f"cuda:{local_rank}") for k, v in batch.items()}
+            attention_mask = batch["attention_mask"]
 
+            print(f"batch['pixel_values'] size: {batch['pixel_values'].size()}")
+            print(f"batch['input_ids'] size: {batch['input_ids'].size()}")
+            print(f"batch['attention_mask'] size: {batch['attention_mask'].size()}")
+
+            batch["pixel_values"] = convert_image_tensor_to_llava_tokens(batch["pixel_values"])
             # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
-            input_ids = torch.cat([batch["input_ids"], batch["input_ids"]], dim=0)
-
+            input_ids = torch.cat([torch.cat([batch["input_ids"], batch["pixel_values"]], dim=1), torch.cat([batch["input_ids"], batch["pixel_values"]], dim=1)], dim=0)
+            
             # parallelize the processing of context between GPUs
             seq_len = input_ids.shape[1]
             seq_parallel_chunk_size = seq_len // world_size
             seq_parallel_chunk_start = seq_parallel_chunk_size * rank
             seq_parallel_chunk_end = seq_parallel_chunk_start + seq_parallel_chunk_size
+
+            attn_len = attention_mask.shape[1]
+            attention_parallel_chunk_size = attn_len // world_size
+            attention_parallel_chunk_start = attention_parallel_chunk_size * rank
+            attention_parallel_chunk_end = attention_parallel_chunk_start + attention_parallel_chunk_size
 
             position_ids = torch.arange(
                 seq_parallel_chunk_start,
@@ -135,10 +187,14 @@ def train(
                 device=input_ids.device,
             ).unsqueeze(0)
 
-            outputs = model(
-                input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end],
-                position_ids=position_ids,
-            )
+            print(f"type(model): {type(model)}")
+
+            if (isinstance(model, LlamaForCausalLM)):
+                outputs = model(
+                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end],
+                    position_ids=position_ids,
+                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end]
+                )
 
             hidden_states = outputs[0]
 
@@ -311,7 +367,6 @@ def main(args):
         streaming_attn_implementation=args.streaming_attn_implementation,
     )
 
-    model = model.language_model if use_llava else model.model
 
     for param in model.parameters():
         param.requires_grad = False

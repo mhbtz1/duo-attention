@@ -273,12 +273,14 @@ class MultiplePasskeyRetrievalDataset(Dataset):
 @dataclass
 class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
-
-    tokenizer: transformers.PreTrainedTokenizer
+    def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
+        self.tokenizer = tokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple(
-            ([instance["tokenized_input"][key] for instance in instances] + instance["response"]) for key in ("input_ids", "pixel_values", "attention_mask")
+        #print(f"len(instances): {len(instances)}")
+        
+        input_ids, pixel_values, attention_mask, labels = tuple(
+            torch.tensor(instances[0].get(key, [])) for key in ["input_ids", "pixel_values", "attention_mask", "label"]
         )
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
@@ -286,22 +288,30 @@ class DataCollator(object):
         labels = torch.nn.utils.rnn.pad_sequence(
             labels, batch_first=True, padding_value=-100
         )
+        #print(f"type(input_ids): {type(input_ids)}")
+        #print(f"type(labels): {type(labels)}")
+        #print(f"type(pixel_values): {type(pixel_values)}")
+        #print(f"type(attention_mask): {type(attention_mask)}")
+
 
         ret_dict = dict(
             input_ids=input_ids,
             labels=labels,
-            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+            attention_mask=attention_mask if attention_mask.numel() > 0 else input_ids.ne(self.tokenizer.pad_token_id),
+            pixel_values=pixel_values
         )
+        '''
         for key in instances[0].keys():
             if key not in ret_dict:
-                ret_dict[key] = torch.stack([instance[key] for instance in instances])
+                ret_dict[key] = torch.stack([instances[0][key] for key in ["input_ids", "pixel_values", "attention_mask", "label"]])
+        '''
         return ret_dict
 
 
 def get_supervised_dataloader(
     dataset, tokenizer, batch_size, num_workers=4, shuffle=True, sampler=None
 ):
-    collator = DataCollator(tokenizer)
+    collator = DataCollator(tokenizer)    
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
