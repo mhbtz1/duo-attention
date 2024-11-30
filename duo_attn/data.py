@@ -273,14 +273,14 @@ class MultiplePasskeyRetrievalDataset(Dataset):
 @dataclass
 class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
-    def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
-        self.tokenizer = tokenizer
+    
+    tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         #print(f"len(instances): {len(instances)}")
         
-        input_ids, pixel_values, attention_mask, labels = tuple(
-            torch.tensor(instances[0].get(key, [])) for key in ["input_ids", "pixel_values", "attention_mask", "label"]
+        image, prompt, label = tuple(
+            torch.tensor(instances[0].get(key, [])) for key in ["image", "prompt", "label"]
         )
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
@@ -295,10 +295,9 @@ class DataCollator(object):
 
 
         ret_dict = dict(
-            input_ids=input_ids,
-            labels=labels,
-            attention_mask=attention_mask if attention_mask.numel() > 0 else input_ids.ne(self.tokenizer.pad_token_id),
-            pixel_values=pixel_values
+            image=input_ids,
+            prompt=prompt,
+            label=label,
         )
         '''
         for key in instances[0].keys():

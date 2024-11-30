@@ -24,10 +24,10 @@ class PasskeyDataset(torch.utils.data.Dataset):
         ])  
 
         # note: some weird issue with pixel_values being empty after applying self.processor, might be some issue with images      
-        self.all_images = [self.transform(Image.open(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"), file))) 
+        self.all_images = [self.transform(Image.open(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"), file))).permute(2, 1, 0) 
                         for file in os.listdir(os.path.join(os.environ["ROOT_DIR"], "augmented_images"))]
-        self.all_prompts = ["This is a placeholder prompt. Answer how you see fit." for _ in range(len(self.all_images))]
-        self.response = [processor.tokenizer.encode(self.all_prompts[i], return_tensors="pt") for i in range(len(self.all_prompts))]
+        self.all_prompts = ["USER: <image>\n This is a placeholder prompt. Answer how you see fit.\nASSISTANT:" for _ in range(len(self.all_images))]
+        self.response = ["Here is a placeholder text response." for _ in range(len(self.all_prompts))]
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         ridx = random.randint(0, len(self.all_images)-1)
@@ -42,10 +42,8 @@ class PasskeyDataset(torch.utils.data.Dataset):
         return len(self.all_images)
 
     def __getitem__(self, idx):
-        tokenized_input = self.processor(images=self.all_images[idx], text=self.all_prompts[idx], padding=True, return_tensors="pt")
         #print(tokenized_input['input_ids'].shape, tokenized_input['attention_mask'].shape, tokenized_input['pixel_values'].shape)
-        processor_dict = dict({"input_ids": tokenized_input["input_ids"].tolist(), "attention_mask": tokenized_input["attention_mask"].tolist(), 
-        "pixel_values": tokenized_input["pixel_values"].tolist(), "label": self.response[idx].tolist()})
+        processor_dict = dict({"image": self.all_images[idx], "prompt": self.all_prompts[idx], "label": self.response[idx]})
         return processor_dict  # by default, just make the VLM mimic its text output
 
 

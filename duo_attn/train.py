@@ -130,6 +130,11 @@ def train(
     if int(os.environ["USE_LLAVA"]):
         for params in model.multi_modal_projector.parameters():
             params.requires_grad = False
+        image_processor = CLIPImageProcessor.from_pretrained(
+            'llava-hf/llava-1.5-7b-hf',
+            size={"height": 336, "width": 336}
+        )
+        tokenizer = AutoTokenizer.from_pretrained('llava-hf/llava-1.5-7b-hf')
 
     if rank == 0:
         pbar = tqdm(range(args.num_steps))
@@ -158,23 +163,39 @@ def train(
                 x.clamp_(min_val, max_val)
 
             map_full_attention_heads(model, func=lambda x: clamp_(x, 0, 1))
+            # currently not backwards compatible with LlamaForCausalLM, will fix later
 
+            img = image_processor(batch["image"], return_tensor="pt")
+            batch["prompt"].replace("<image>", batch["image"])
+            data = tokenizer(
+                batch["prompt"],
+                return_tensors="pt",
+                max_length=1048576,
+                padding="max_length",
+                truncation=True
+            )
+            del batch["image"]
+            del batch["prompt"]
+
+            batch["input_ids"] = data.input_ids
+            batch["attention_mask"] = data.attention_mask
+            batch["pixel_values"] = data.pixel_values
             batch = {k: v.to(f"cuda:{local_rank}") for k, v in batch.items()}
-            attention_mask = batch["attention_mask"]
 
-            print(f"batch['pixel_values'] size: {batch['pixel_values'].size()}")
-            print(f"batch['input_ids'] size: {batch['input_ids'].size()}")
-            print(f"batch['attention_mask'] size: {batch['attention_mask'].size()}")
-
-            batch["pixel_values"] = convert_image_tensor_to_llava_tokens(batch["pixel_values"])
             # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
-            input_ids = torch.cat([torch.cat([batch["input_ids"], batch["pixel_values"]], dim=1), torch.cat([batch["input_ids"], batch["pixel_values"]], dim=1)], dim=0)
-
+            input_ids = torch.cat([batch["input_ids"], batch["input_ids"]], dim=0)
+            pixel_values = torch.cat([batch["pixel_values"], batch["pixel_values"]], dim=0)
+            attention_mask = torch.cat([batch["attention_mask"], batch["attention_mask"]], dim=0)
             # parallelize the processing of context between GPUs
             seq_len = input_ids.shape[1]
             seq_parallel_chunk_size = seq_len // world_size
             seq_parallel_chunk_start = seq_parallel_chunk_size * rank
             seq_parallel_chunk_end = seq_parallel_chunk_start + seq_parallel_chunk_size
+
+            vis_len = pixel_values.shape[1]
+            vis_parallel_chunk_size = vis_len // world_size
+            vis_parallel_chunk_start = vis_parallel_chunk_size * rank
+            vis_parallel_chunk_end = vis_parallel_chunk_start + vis_parallel_chunk_size
 
             attn_len = attention_mask.shape[1]
             attention_parallel_chunk_size = attn_len // world_size
@@ -189,11 +210,17 @@ def train(
 
             print(f"type(model): {type(model)}")
 
-            if (isinstance(model, LlamaForCausalLM)):
+            if (isinstance(model, LlavaForConditionalGeneration)):
                 outputs = model(
                     input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end],
                     position_ids=position_ids,
-                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end]
+                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end],
+                    pixel_values = pixel_values[:, vis_parallel_chunk_start:vis_parallel_chunk_end]
+                )
+            elif (isinstance(model, LlamaForCausalLM)):
+                outputs = model(
+                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end]
+                    position_ids=position_ids
                 )
 
             hidden_states = outputs[0]
@@ -227,7 +254,7 @@ def train(
             ]
 
             reg_loss = l1_loss(torch.cat(full_attention_heads).float())
-
+            # note: for duoattention output does not matter, as we are not updating any model weights
             loss = distill_loss + args.reg_weight * reg_loss
 
             loss.backward()
