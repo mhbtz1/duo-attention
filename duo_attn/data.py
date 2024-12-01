@@ -293,37 +293,38 @@ class DataCollator(object):
         image, prompt, label = tuple(
             torch.tensor(instances[0].get(key, [])) if type(instances[0].get(key, [])) == list else instances[0].get(key, []) for key in ["image", "prompt", "label"]
         )
+        #print(prompt)
         print(f"image shape: {image.size()}")
         print(f"type of tokenizer: {type(tokenizer)}")
         print(f"label type: {type(label)}")
-        processed_context = self.processor(images=image, text=prompt, padding=True, return_tensors="pt")
-        label = tokenizer.encode(label, return_tensors="pt")
+        
+        processed_context = self.processor(images=image, text=prompt+ " " + label, padding=True, return_tensors="pt")
+        label_tokens = tokenizer.encode(label, return_tensors="pt").flatten()
+        labels = torch.cat((torch.tensor([-100] * len(prompt)), label_tokens))
+        labels = labels.unsqueeze(0)
         input_ids = processed_context.input_ids
-        attention_mask = processed_context.attention_mask
-
+        #attention_mask = processed_context.attention_mask
+        pixel_values = processed_context.pixel_values
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=tokenizer.pad_token_id
         )
-        label = torch.nn.utils.rnn.pad_sequence(
-            label, batch_first=True, padding_value=-100
+        labels = torch.nn.utils.rnn.pad_sequence(
+            labels, batch_first=True, padding_value=-100
         )
-
-        #print(f"type(input_ids): {type(input_ids)}")
-        #print(f"type(labels): {type(labels)}")
-        #print(f"type(pixel_values): {type(pixel_values)}")
-        #print(f"type(attention_mask): {type(attention_mask)}")
-
+        attention_mask=input_ids.ne(tokenizer.pad_token_id)
 
         ret_dict = dict(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            labels=label,
+            labels=labels,
+            pixel_values = pixel_values
         )
         '''
         for key in instances[0].keys():
             if key not in ret_dict:
                 ret_dict[key] = torch.stack([instances[0][key] for key in ["input_ids", "pixel_values", "attention_mask", "label"]])
         '''
+        
         return ret_dict
 
 
