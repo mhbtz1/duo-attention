@@ -317,7 +317,7 @@ class DataCollator(object):
         ret_dict = dict(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            label=label,
+            labels=label,
         )
         '''
         for key in instances[0].keys():
