@@ -74,16 +74,7 @@ def apply_fsdp(model: torch.nn.Module, mesh, mp_policy, modules_to_shard):
     fully_shard(model, **fsdp_config)
 
 
-def setup_llava_trainer():
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float16
-    )
-
-    model_id = "llava-hf/llava-1.5-7b-hf"
-    processor = AutoProcessor.from_pretrained(model_id)
-    llava = LlavaForConditionalGeneration.from_pretrained(model_id, quantization_config=quantization_config, device_map="auto")
-    return (processor, llava)
+#Removed setup_llava_trainer, which was unused
 
 def convert_image_tensor_to_llava_tokens(
     image_tensor: torch.Tensor,
@@ -181,6 +172,7 @@ def train(
 
             print(f"type(model): {type(model)}")
             print(f"tensor devices: {input_ids.device}, {attention_mask.device}, {position_ids.device}")
+            print(f"datatypes: {input_ids.dtype}, {attention_mask.dtype}, {position_ids.dtype}")
 
             if (isinstance(model, LlavaForConditionalGeneration)):
                 print(f"type(model.language_model): {type(model.language_model)}")
@@ -343,8 +335,11 @@ def main(args):
         model = LlavaForConditionalGeneration.from_pretrained(
             "llava-hf/llava-1.5-7b-hf",
             config=config,
+            #Modified these per https://huggingface.co/llava-hf/llava-1.5-7b-hf
             low_cpu_mem_usage=True,
-            attn_implementation="eager"
+            torch_dtype=torch.bfloat16,
+            use_flash_attention_2=True,
+            #attn_implementation="eager"
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
