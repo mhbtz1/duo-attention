@@ -5,10 +5,10 @@ try:
 except ImportError:
     xops = None
 
-try:
-    from block_sparse_attn import block_streaming_attn_func
-except ImportError:
-    block_streaming_attn_func = None
+#try:
+from block_sparse_attn import block_streaming_attn_func
+#except ImportError:
+#    block_streaming_attn_func = None
 
 
 @torch.no_grad()
