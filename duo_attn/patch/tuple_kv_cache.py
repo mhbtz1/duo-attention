@@ -456,6 +456,7 @@ def old_llama_decoder_layer_forward(
     output_attentions: Optional[bool] = False,
     use_cache: Optional[bool] = False,
     padding_mask: Optional[torch.LongTensor] = None,
+    cache_position: Optional[int] = None
 ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
     residual = hidden_states
 

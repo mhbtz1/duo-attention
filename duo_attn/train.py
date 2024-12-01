@@ -126,6 +126,8 @@ def convert_image_tensor_to_llava_tokens(
 def train(
     args, model : LlavaForConditionalGeneration, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
 ):
+    local_rank = int(os.environ["LOCAL_RANK"])
+    model.to(f"cuda:{local_rank}")
     model.train()
     if int(os.environ["USE_LLAVA"]):
         for params in model.multi_modal_projector.parameters():
@@ -133,8 +135,6 @@ def train(
 
     if rank == 0:
         pbar = tqdm(range(args.num_steps))
-
-    local_rank = int(os.environ["LOCAL_RANK"])
 
     global_step = 0
     local_step = 0
@@ -158,24 +158,16 @@ def train(
                 x.clamp_(min_val, max_val)
 
             map_full_attention_heads(model, func=lambda x: clamp_(x, 0, 1))
-            # currently not backwards compatible with LlamaForCausalLM, will fix later
-
             batch = {k: v.to(f"cuda:{local_rank}") for k, v in batch.items()}
 
             # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
             input_ids = torch.cat([batch["input_ids"], batch["input_ids"]], dim=0)
-            pixel_values = torch.cat([batch["pixel_values"], batch["pixel_values"]], dim=0)
             attention_mask = torch.cat([batch["attention_mask"], batch["attention_mask"]], dim=0)
             # parallelize the processing of context between GPUs
             seq_len = input_ids.shape[1]
             seq_parallel_chunk_size = seq_len // world_size
             seq_parallel_chunk_start = seq_parallel_chunk_size * rank
             seq_parallel_chunk_end = seq_parallel_chunk_start + seq_parallel_chunk_size
-
-            vis_len = pixel_values.shape[1]
-            vis_parallel_chunk_size = vis_len // world_size
-            vis_parallel_chunk_start = vis_parallel_chunk_size * rank
-            vis_parallel_chunk_end = vis_parallel_chunk_start + vis_parallel_chunk_size
 
             attn_len = attention_mask.shape[1]
             attention_parallel_chunk_size = attn_len // world_size
@@ -185,17 +177,17 @@ def train(
             position_ids = torch.arange(
                 seq_parallel_chunk_start,
                 seq_parallel_chunk_end,
-                device=input_ids.device,
-            ).unsqueeze(0)
+            ).unsqueeze(0).to("cuda:0")
 
             print(f"type(model): {type(model)}")
+            print(f"tensor devices: {input_ids.device}, {attention_mask.device}, {position_ids.device}")
 
             if (isinstance(model, LlavaForConditionalGeneration)):
-                outputs = model(
-                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end],
-                    position_ids=position_ids,
-                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end],
-                    pixel_values = pixel_values[:, vis_parallel_chunk_start:vis_parallel_chunk_end]
+                print(f"type(model.language_model): {type(model.language_model)}")
+                outputs = model.language_model.model(
+                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end].to("cuda:0"),
+                    position_ids=position_ids.to("cuda:0"),
+                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end].to("cuda:0"),
                 )
             elif (isinstance(model, LlamaForCausalLM)):
                 outputs = model(
@@ -385,8 +377,9 @@ def main(args):
             num_attn_heads += param.numel()
 
     setup()
-
+    
     torch.cuda.set_device(local_rank)
+    '''
     mp_policy = MixedPrecisionPolicy(
         param_dtype=torch.bfloat16,
         reduce_dtype=torch.bfloat16,
@@ -403,7 +396,7 @@ def main(args):
         mp_policy,
         modules_to_shard={LlamaDecoderLayer, MistralDecoderLayer},
     )
-
+    '''
     if rank == 0:
         print(model)
         for name, param in model.named_parameters():

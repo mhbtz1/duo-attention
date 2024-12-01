@@ -284,7 +284,7 @@ class DataCollator(object):
         self.processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
 
     '''
-    tokenizer: transformers.models.llama.tokenization_llama_fast.LlamaTokenizerFast
+    tokenizer: transformers.models.llama.tokenization_llama_fast.LlamaTokenizerFast[]
     image_processor: transformers.CLIPImageProcessor
     '''
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
@@ -316,7 +316,7 @@ class DataCollator(object):
 
         ret_dict = dict(
             input_ids=input_ids,
-            attention_mask=prompt,
+            attention_mask=attention_mask,
             label=label,
         )
         '''

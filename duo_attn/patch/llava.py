@@ -282,8 +282,8 @@ def get_llava_full_attention_heads(model: LlavaForConditionalGeneration):
             )
             for layer_idx in range(len(full_attention_heads[0]))
         ]
-    elif isinstance(model, LlamaForCausalLM):
-        for layer in model.model.layers:
+    elif model.__class__.__name__ == "LlavaForConditionalGeneration" or model.__class__.__name__ == "FSDPLlavaForConditionalGeneration":
+        for layer in model.language_model.model.layers:
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
                 continue
@@ -311,7 +311,7 @@ def set_llava_full_attention_heads(model: LlavaForConditionalGeneration, full_at
                     module.full_attention_heads.device,
                     module.full_attention_heads.dtype,
                 )
-    elif isinstance(model.language_model, LlamaForCausalLM):
+    elif model.__class__.__name__ == "LlavaForConditionalGeneration" or model.__class__.__name__ == "FSDPLlavaForConditionalGeneration":
         for layer_idx, layer in enumerate(model.language_model.model.layers):
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
@@ -332,22 +332,21 @@ def set_llava_full_attention_heads(model: LlavaForConditionalGeneration, full_at
 
 
 def map_llava_full_attention_heads(model: LlavaForConditionalGeneration, func):
-    print(f"type(model.language_model): {type(model.language_model)}")
-    print(f"type(model): {type(model)}")
-    if isinstance(model.language_model, TensorParallelPreTrainedModel):
+    print(f"model name: {model.__class__.__name__}")
+    if model.__class__.__name__ ==  "TensorParallelPreTrainedModel":
         for shard in model.language_model.wrapped_model.module_shards:
             for layer in shard.model.layers:
                 module = layer.self_attn.tp_wrapped_module
                 if not hasattr(module, "full_attention_heads"):
                     continue
                 func(module.full_attention_heads)
-    elif isinstance(model.language_model, LlamaForCausalLM):
+    elif model.__class__.__name__ == "LlavaForConditionalGeneration" or model.__class__.__name__ == "FSDPLlavaForConditionalGeneration":
         for layer in model.language_model.model.layers:
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
                 continue
             func(module.full_attention_heads)
-    elif isinstance(model.language_model, LlamaModel):
+    elif model.__class__.__name__ == "LlamaModel":
         for layer in model.language_model.layers:
             module = layer.self_attn
             if not hasattr(module, "full_attention_heads"):
