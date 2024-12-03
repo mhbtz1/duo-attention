@@ -75,8 +75,7 @@ class MenuPriceRetrievalDataset(Dataset):
         #Get these from loading pretrained model
         tokenizer: transformers.PreTrainedTokenizer,
         image_processor,
-        #device,
-        model_config,
+
         max_length=None,
         #passkey_length=32,
         max_price=10,
@@ -97,9 +96,8 @@ class MenuPriceRetrievalDataset(Dataset):
     ):
         super(MenuPriceRetrievalDataset, self).__init__()
         self.tokenizer = tokenizer
+        self.tokenizer_encode = self._get_encoder(self.tokenizer)
         self.image_processor = image_processor
-        #self.device = device
-        self.model_config = model_config
 
         #Populate available foods
         self.image_path = os.getenv("FOOD_IMAGES") 
@@ -150,56 +148,52 @@ class MenuPriceRetrievalDataset(Dataset):
 
         self.needle = needle
         self.needle_tokens_list = [
-            self.tokenizer.encode(
+            self.tokenizer_encode(
                 self.needle.format(ordinal_number=ordinal_number),
-                return_tensors="pt"
             )
             for ordinal_number in self.ORDINAL_NUMBERS[: self.num_items]
         ]
 
         self.food_tokens_list = [
-            self.tokenizer.encode(food.replace("_", " ") + " costs", 
-                return_tensors="pt")
+            self.tokenizer_encode(food.replace("_", " ") + " costs") 
             for food in self.FOODS
         ]
 
-        self.haystack_tokens = self.tokenizer.encode(
-            self.haystack, return_tensors="pt"
+        self.haystack_tokens = self.tokenizer_encode(
+            self.haystack,
         )
-        self.seperator_tokens = self.tokenizer.encode(
-            seperator, return_tensors="pt"
+        self.seperator_tokens = self.tokenizer_encode(
+            seperator, 
         )
         self.prompt1_tokens_list = [
-            self.tokenizer.encode(
-                prompt1.format(meal=meal),
-                return_tensors="pt"
+            self.tokenizer_encode(
+                prompt1.format(meal=meal,),
+                start=True
             )
             for meal in self.MEALS
         ]   
         
-        self.tokenizer.encode(prompt1, return_tensors="pt")
-        self.prompt2_tokens = self.tokenizer.encode(prompt2, return_tensors="pt")
+        self.prompt2_tokens = self.tokenizer_encode(prompt2)
 
 
         self.retrieval_question_tokens_list = [
-            self.tokenizer.encode(
+            self.tokenizer_encode(
                 retrieval_question.format(meal=meal),
-                return_tensors="pt"
             )
             for meal in self.MEALS#[: self.num_passkeys]
         ]       
 
         price_string = "{price} dollars"
         self.price_tokens_list = [
-            self.tokenizer.encode(
-                price_string.format(price=num), return_tensors="pt"
+            self.tokenizer_encode(
+                price_string.format(price=num), 
             )
             for num in self.NUMBERS[: self.max_price]
         ]
 
         #Different foods might be encoded by different #s of tokens, so can't pre-compute a fixed length
         #But, we can do some trimming
-        #passkey_tokens = self.tokenizer.encode(passkey, return_tensors="pt")
+        #passkey_tokens = self.tokenizer_encode(passkey)
         other_input_len = (
             len(self.prompt1_tokens_list[0])
             + len(self.prompt2_tokens)
@@ -289,13 +283,13 @@ class MenuPriceRetrievalDataset(Dataset):
         return len(self.context_length_intervals)
 
     def _trim(self, context, context_length):
-        tokens = self.tokenizer.encode(context, return_tensors="pt")
+        tokens = self.tokenizer_encode(context)
         if len(tokens) > context_length:
             context = self.tokenizer.decode(tokens[:context_length])
         return context
     
     def _get_token_nums(self, context):
-        return len(self.tokenizer.encode(context, return_tensors="pt"))
+        return len(self.tokenizer_encode(context))
 
     def _insert_needle(self, context_length, depth_ratios, food_tokens_list, price_tokens_list): #Updated
         haystack_tokens = self.haystack_tokens[:context_length]
@@ -307,7 +301,7 @@ class MenuPriceRetrievalDataset(Dataset):
             zip(depth_ratios, food_tokens_list, price_tokens_list)
         ):
             insertion_point = int(len(haystack_tokens) * depth_ratio)
-
+            #breakpoint()
             needle_tokens = torch.cat((self.needle_tokens_list[i], food_token, price_tokens))
 
             if context is None: #TODO: improve
@@ -330,6 +324,16 @@ class MenuPriceRetrievalDataset(Dataset):
         context = torch.cat((context, haystack_tokens[last_insertion_point:]))
 
         return context
+    
+    def _get_encoder(self, tokenizer):
+        def f(text, start=False): #a_s_t ignored
+            tokens = tokenizer(text, return_tensors="pt")
+            tokens = tokens.input_ids.squeeze(0)
+            if not start:
+                tokens = tokens[1:]#Remove extra start token
+            return tokens
+        return f
+
 
 @dataclass
 class DataCollator(object):
