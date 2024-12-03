@@ -280,9 +280,9 @@ class DataCollator(object):
         self.image_processor = image_processor
     '''
     
-    def __init__(self):
+    def __init__(self, multi_modal_projector):
         self.processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
-
+        self.multi_modal_projector = multi_modal_projector
     '''
     tokenizer: transformers.models.llama.tokenization_llama_fast.LlamaTokenizerFast[]
     image_processor: transformers.CLIPImageProcessor
@@ -293,45 +293,50 @@ class DataCollator(object):
         image, prompt, label = tuple(
             torch.tensor(instances[0].get(key, [])) if type(instances[0].get(key, [])) == list else instances[0].get(key, []) for key in ["image", "prompt", "label"]
         )
-        #print(prompt)
         print(f"image shape: {image.size()}")
         print(f"type of tokenizer: {type(tokenizer)}")
         print(f"label type: {type(label)}")
         
-        processed_context = self.processor(images=image, text=prompt+ " " + label, padding=True, return_tensors="pt")
-        label_tokens = tokenizer.encode(label, return_tensors="pt").flatten()
-        labels = torch.cat((torch.tensor([-100] * len(prompt)), label_tokens))
-        labels = labels.unsqueeze(0)
-        input_ids = processed_context.input_ids
-        #attention_mask = processed_context.attention_mask
-        pixel_values = processed_context.pixel_values
-        input_ids = torch.nn.utils.rnn.pad_sequence(
+        processed_image, processed_text = image_processor(image, return_tensors="pt"), tokenizer(text, return_tensors='pt')
+        with torch.no_grad():
+            image_embeddings = model.multi_modal_projector(image_inputs["pixel_values"])
+        text_tokens = processed_text["input_ids"]
+        text_attention_mask = processed_text["attention_mask"]
+
+        concatenated_tokens = torch.cat([text_tokens, image_embeddings], dim=1)
+        concatenated_attention_mask = torch.cat([text_attention_mask, torch.ones(image_embeddings.size()[:-1], dtype=torch.long)], dim=1)
+
+        label = tokenizer.encode(label, return_tensors="pt")
+        concatenated_tokens = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=tokenizer.pad_token_id
         )
-        labels = torch.nn.utils.rnn.pad_sequence(
-            labels, batch_first=True, padding_value=-100
+        label = torch.nn.utils.rnn.pad_sequence(
+            label, batch_first=True, padding_value=-100
         )
-        attention_mask=input_ids.ne(tokenizer.pad_token_id)
+
+        #print(f"type(input_ids): {type(input_ids)}")
+        #print(f"type(labels): {type(labels)}")
+        #print(f"type(pixel_values): {type(pixel_values)}")
+        #print(f"type(attention_mask): {type(attention_mask)}")
+
 
         ret_dict = dict(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            labels=labels,
-            pixel_values = pixel_values
+            input_ids=concatenated_tokens,
+            attention_mask=concatenated_attention_mask,
+            labels=label,
         )
         '''
         for key in instances[0].keys():
             if key not in ret_dict:
                 ret_dict[key] = torch.stack([instances[0][key] for key in ["input_ids", "pixel_values", "attention_mask", "label"]])
         '''
-        
         return ret_dict
 
 
 def get_supervised_dataloader(
-    dataset, tokenizer, batch_size, num_workers=4, shuffle=True, sampler=None
+    dataset, tokenizer, batch_size, multi_modal_projector=None, num_workers=4, shuffle=True, sampler=None
 ):
-    collator = DataCollator()    
+    collator = DataCollator(multi_modal_projector)    
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,

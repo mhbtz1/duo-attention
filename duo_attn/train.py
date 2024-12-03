@@ -205,8 +205,8 @@ def train(
             dist.all_reduce(global_num_labels)
 
             # filter out label == IGNORE_INDEX (-100)
-            original_hidden_states = original_hidden_states[original_hidden_states != -100].float()
-            pruned_hidden_states = pruned_hidden_states[pruned_hidden_states != -100].float()
+            original_hidden_states = original_hidden_states[labels != -100].float()
+            pruned_hidden_states = pruned_hidden_states[labels != -100].float()
 
             distill_loss = (
                 (original_hidden_states - pruned_hidden_states)
