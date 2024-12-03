@@ -6,7 +6,7 @@ import json
 import wandb
 import matplotlib.pyplot as plt
 import sys
-print(sys.path)
+#print(sys.path)
 from huggingface_hub import login
 from utils import (
     get_model,
@@ -118,7 +118,6 @@ def train(
     args, model : LlavaForConditionalGeneration, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
 ):
     local_rank = int(os.environ["LOCAL_RANK"])
-    model.to(f"cuda:{local_rank}")
     model.train()
     if int(os.environ["USE_LLAVA"]):
         for params in model.multi_modal_projector.parameters():
@@ -134,7 +133,7 @@ def train(
         if global_step >= args.num_steps:
             break
         for step, batch in enumerate(train_dataloader):
-            print(f"step {step} batch size: {len(batch.items())}, batch keys: {batch.keys()}")
+            #print(f"step {step} batch size: {len(batch.items())}, batch keys: {batch.keys()}")
             if global_step <= resume_step:
                 global_step += 1
                 if rank == 0:
@@ -170,12 +169,12 @@ def train(
                 seq_parallel_chunk_end,
             ).unsqueeze(0).to("cuda:0")
 
-            print(f"type(model): {type(model)}")
-            print(f"tensor devices: {input_ids.device}, {attention_mask.device}, {position_ids.device}")
-            print(f"datatypes: {input_ids.dtype}, {attention_mask.dtype}, {position_ids.dtype}")
+            #print(f"type(model): {type(model)}")
+            #print(f"tensor devices: {input_ids.device}, {attention_mask.device}, {position_ids.device}")
+            #print(f"datatypes: {input_ids.dtype}, {attention_mask.dtype}, {position_ids.dtype}")
 
             if (isinstance(model, LlavaForConditionalGeneration)):
-                print(f"type(model.language_model): {type(model.language_model)}")
+                #print(f"type(model.language_model): {type(model.language_model)}")
                 outputs = model.language_model.model(
                     input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end].to("cuda:0"),
                     position_ids=position_ids.to("cuda:0"),
@@ -187,20 +186,27 @@ def train(
                     position_ids=position_ids
                 )
 
+            #print(f"CausalLMOutputWithPast attributes: {dir(outputs)}")
             hidden_states = outputs[0]
+            #print(f"hidden size: {outputs[0].size()}")
 
             original_hidden_states = hidden_states[: args.batch_size]
             pruned_hidden_states = hidden_states[args.batch_size :]
 
+            #print(f"original_hidden_states size: {original_hidden_states.size()}")
+            #print(f"pruned_hidden_states size: {pruned_hidden_states.size()}")
+
             labels = batch["labels"][:, seq_parallel_chunk_start:seq_parallel_chunk_end]
+            
+            #print(f"labels size: {labels.size()}")
             label_mask = labels != -100
             num_labels = label_mask.sum()
             global_num_labels = num_labels.clone().detach()
             dist.all_reduce(global_num_labels)
 
             # filter out label == IGNORE_INDEX (-100)
-            original_hidden_states = original_hidden_states[label_mask].float()
-            pruned_hidden_states = pruned_hidden_states[label_mask].float()
+            original_hidden_states = original_hidden_states[original_hidden_states != -100].float()
+            pruned_hidden_states = pruned_hidden_states[pruned_hidden_states != -100].float()
 
             distill_loss = (
                 (original_hidden_states - pruned_hidden_states)
@@ -213,7 +219,7 @@ def train(
 
             full_attention_heads = get_full_attention_heads(model)
             full_attention_heads = [
-                h.full_tensor().to(original_hidden_states.device)
+                h.to(original_hidden_states.device)
                 for h in full_attention_heads
             ]
 
@@ -326,7 +332,7 @@ def main(args):
         config = AutoConfig.from_pretrained(args.model_name)
 
     if args.rope_theta is not None:
-        print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
+        #print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
         config.rope_theta = args.rope_theta
 
     login(token=os.getenv("HF_API_KEY"))
@@ -351,7 +357,7 @@ def main(args):
             attn_implementation="eager",
         )
 
-
+    model.to("cuda")
     enable_duo_attention_training(
         model,
         args.sink_size,
@@ -467,10 +473,11 @@ def main(args):
         )
         set_full_attention_heads(model, full_attention_heads)
         resume_step = state["global_step"]
-        print(f"Resuming from step {resume_step}")
+        #print(f"Resuming from step {resume_step}")
     else:
         resume_step = -1
 
+    model.to("cuda")
     train(
         args,
         model,
@@ -486,7 +493,7 @@ def main(args):
     full_attention_heads = [h.full_tensor() for h in full_attention_heads]
 
     if rank == 0:
-        print("Training finished")
+        #print("Training finished")
         if args.output_dir is not None:
             full_attention_heads_list = full_attention_heads_to_list(
                 full_attention_heads
