@@ -430,7 +430,7 @@ def main(args):
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
 
     train_dataloader = get_supervised_dataloader(
-        train_dataset, tokenizer, args.batch_size, shuffle=True
+        train_dataset, tokenizer, args.batch_size, model, shuffle=True
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0)
