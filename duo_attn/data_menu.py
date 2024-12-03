@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, IterableDataset
 from llava.mm_utils import process_images, tokenizer_image_token, get_model_name_from_path
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN
 
+#Used for haystack dataset
 def get_dataset(dataset_name, split="train", size=None):
     dataset = load_dataset("json", data_files=dataset_name, split=split)
     if size is not None:
@@ -75,7 +76,7 @@ class MenuPriceRetrievalDataset(Dataset):
         #Get these from loading pretrained model
         tokenizer: transformers.PreTrainedTokenizer,
         image_processor,
-        device,
+        #device,
         model_config,
         max_length=None,
         #passkey_length=32,
@@ -99,7 +100,7 @@ class MenuPriceRetrievalDataset(Dataset):
         self.tokenizer = tokenizer
         self.tokenizer_encode = self._get_encoder(self.tokenizer)
         self.image_processor = image_processor
-        self.device = device
+        #self.device = device
         self.model_config = model_config
 
         #Populate available foods
@@ -108,7 +109,7 @@ class MenuPriceRetrievalDataset(Dataset):
             self.image_path = "/data/cb/dschaffe/vlm/llava/menu_images/MAFood121/images"
         subdirs = [d for d in os.listdir(self.image_path) if os.path.isdir(os.path.join(self.image_path, d))]
         self.FOODS = subdirs 
-        breakpoint()
+        #breakpoint()
 
         self.max_length = (
             max_length if max_length is not None else tokenizer.model_max_length
@@ -268,20 +269,22 @@ class MenuPriceRetrievalDataset(Dataset):
         assert input_ids.size(0) % self.pad_to_multiple_of == 0
 
         labels = torch.cat((torch.tensor([-100] * len(context_tokens)), qa_tokens))
-        input_ids = input_ids.unsqueeze(0).to(self.device)
-        labels = labels.to(self.device)
+        input_ids = input_ids.unsqueeze(0)#.to(self.device)
+        #labels = labels.to(self.device)
         
         image_class=self.FOODS[menu_indices[order_idx]]
         image_file = self._choose_image(image_class)
         image = Image.open(image_file).convert('RGB')
         image_tensor = process_images([image], self.image_processor, self.model_config)
-        if type(image_tensor) is list:
-            image_tensor = [image.to(self.device, dtype=torch.float16) for image in image_tensor]
-        else:
-            image_tensor = image_tensor.to(self.device, dtype=torch.float16)
+        #if type(image_tensor) is list:
+        #    image_tensor = [image.to(self.device, dtype=torch.float16) for image in image_tensor]
+        #else:
+        #    image_tensor = [image_tensor.to(self.device, dtype=torch.float16)]
+        if type(image_tensor) is not list:
+            image_tensor = [image_tensor]
 
-        breakpoint()
-        return dict(input_ids=input_ids, labels=labels, image_tensor=image_tensor, image_size=image.size)
+        #breakpoint()
+        return dict(input_ids=input_ids, labels=labels, image_tensor=image_tensor, image_size=[image.size])
 
     def _choose_image(self, subdir):
         image_path = os.path.join(self.image_path, subdir)
@@ -344,3 +347,51 @@ class MenuPriceRetrievalDataset(Dataset):
         return f
     
 
+
+@dataclass
+class DataCollator(object):
+    """Collate examples for supervised fine-tuning."""
+
+    tokenizer: transformers.PreTrainedTokenizer
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        input_ids, labels, image_tensors, image_sizes = tuple(
+            [instance[key] for instance in instances] for key in ("input_ids", "labels", "image_tensor", "image_size")
+        )
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+        )
+        labels = torch.nn.utils.rnn.pad_sequence(
+            labels, batch_first=True, padding_value=-100
+        )
+
+        #images: list of lists of images -> list of images
+        #I *think* that the preprocessor will consume images in batch order from a list
+        image_tensors = [j for i in image_tensors for j in i]
+        image_sizes = [j for i in image_sizes for j in i]       
+
+        ret_dict = dict(
+            input_ids=input_ids,
+            labels=labels,
+            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+            image_tensor=image_tensors,
+            image_size=image_sizes
+        )
+        for key in instances[0].keys():
+            if key not in ret_dict: #This should add the image stuff to the return dict
+                ret_dict[key] = torch.stack([instance[key] for instance in instances])
+        return ret_dict
+
+def get_supervised_dataloader(
+    dataset, tokenizer, batch_size, num_workers=4, shuffle=True, sampler=None
+):
+    collator = DataCollator(tokenizer)
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        collate_fn=collator,
+        shuffle=None if sampler is not None else shuffle,
+        sampler=sampler,
+    )
+    return dataloader
