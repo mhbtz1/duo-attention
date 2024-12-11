@@ -344,9 +344,9 @@ def main(args):
             #Modified these per https://huggingface.co/llava-hf/llava-1.5-7b-hf
             low_cpu_mem_usage=True,
             torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2"
+            #attn_implementation="flash_attention_2"
             #use_flash_attention_2=True,
-            #attn_implementation="eager"
+            attn_implementation="eager"
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(

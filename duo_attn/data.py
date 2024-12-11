@@ -287,6 +287,36 @@ class DataCollator(object):
     tokenizer: transformers.models.llama.tokenization_llama_fast.LlamaTokenizerFast[]
     image_processor: transformers.CLIPImageProcessor
     '''
+
+    def get_image_features(
+        self, pixel_values: torch.FloatTensor, vision_feature_layer: int, vision_feature_select_strategy: str
+    ):
+        """
+        Obtains image last hidden states from the vision tower and apply multimodal projection.
+
+        Args:
+            pixel_values (`torch.FloatTensor]` of shape `(batch_size, channels, height, width)`)
+               The tensors corresponding to the input images.
+            vision_feature_layer (`int`):
+                The index of the layer to select the vision feature.
+            vision_feature_select_strategy (`str`):
+                The feature selection strategy used to select the vision feature from the vision backbone.
+                Can be one of `"default"` or `"full"`
+        Returns:
+            image_features (`torch.Tensor`)
+            : Image feature tensor of shape `(num_images, image_length, embed_dim)`).
+        """
+        image_outputs = self.base_model.vision_tower(pixel_values, output_hidden_states=True)
+        # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
+        selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+        if vision_feature_select_strategy == "default":
+            selected_image_feature = selected_image_feature[:, 1:]
+        elif vision_feature_select_strategy == "full":
+            selected_image_feature = selected_image_feature
+        else:
+            raise ValueError(f"Unexpected select feature strategy: {self.base_model.config.vision_feature_select_strategy}")
+        image_features = self.base_model.multi_modal_projector(selected_image_feature)
+
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         #print(f"len(instances): {len(instances)}")
         image_processor, tokenizer = self.processor.image_processor, self.processor.tokenizer
@@ -297,9 +327,11 @@ class DataCollator(object):
         print(f"type of tokenizer: {type(tokenizer)}")
         print(f"label type: {type(label)}")
         
-        processed_image, processed_text = image_processor(image, return_tensors="pt"), tokenizer(text, return_tensors='pt')
+        processed_image, processed_text = image_processor(image, return_tensors="pt").to(device="cuda:0"), tokenizer(prompt, return_tensors='pt').to(device="cuda:0")
         with torch.no_grad():
-            image_embeddings = self.base_model.get_image_features(image_inputs["pixel_values"], vision_feature_layer=len(self.model.vision_tower)-1, vision_feature_select_strategy='full')
+            image_embeddings = self.get_image_features(processed_image["pixel_values"], vision_feature_layer=336, vision_feature_select_strategy='full')
+
+        print(f"image embeddings dimension: {image_embeddings.size()}")
         text_tokens = processed_text["input_ids"]
         text_attention_mask = processed_text["attention_mask"]
 
