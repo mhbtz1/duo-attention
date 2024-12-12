@@ -21,7 +21,12 @@ def parse_args():
     parser.add_argument(
         "--dataset_name",
         type=str,
-        default="/root/llava/passkey_images.json.gz",
+        default="togethercomputer/Long-Data-Collections",
+    )
+    parser.add_argument(
+        "--data_files",
+        type=str,
+        default="pile_sub.jsonl.zst"
     )
     parser.add_argument("--dataset_format", type=str, default="multiple_image_passkey")
     parser.add_argument("--split", type=str, default="train")

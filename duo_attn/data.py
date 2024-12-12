@@ -12,7 +12,7 @@ print(f"HF_DATASETS_CACHE: {datasets.config.HF_DATASETS_CACHE}")
 print(f"HF_CACHE_HOME: {datasets.config.HF_CACHE_HOME}")
 
 def get_dataset(data_files, split="train", size=None):
-    print(f"dataset name: {dataset_name}")
+    print(f"dataset files; {data_files}")
     #print(f"data files: {data_files}")
     dataset = load_dataset("json", data_files=data_files, split=split)
     if size is not None:
@@ -287,15 +287,16 @@ class DataCollator(object):
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         #pad_sequence expects 1D inputs, but tokenizer has output with shape [1, X]
+        '''
+        print(f"length of instances: {len(instances)}")
         print(f"keys in instances: {instances[0].keys()}")
         print(f"input_ids shape: {instances[0]['input_ids'].size()}")
         print(f"pixel_values shape: {instances[0]['pixel_values'].size()}")
         print(f"labels shape: {instances[0]['labels'].size()}" )
-
+        '''
         input_ids, labels, pixel_values = tuple(
             [instance[key].squeeze() for instance in instances] for key in ("input_ids", "labels", "pixel_values")
         )
-
 
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
@@ -334,112 +335,3 @@ def get_supervised_dataloader(
         sampler=sampler,
     )
     return dataloader
-
-
-
-
-
-
-
-'''
-@dataclass
-class DataCollator(object):
-    """Collate examples for supervised fine-tuning."""
-    
-    
-    def __init__(self, base_model):
-        self.processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
-        self.base_model = base_model
-
-    def get_image_features(
-        self, pixel_values: torch.FloatTensor, vision_feature_layer: int, vision_feature_select_strategy: str
-    ):
-        """
-        Obtains image last hidden states from the vision tower and apply multimodal projection.
-
-        Args:
-            pixel_values (`torch.FloatTensor]` of shape `(batch_size, channels, height, width)`)
-               The tensors corresponding to the input images.
-            vision_feature_layer (`int`):
-                The index of the layer to select the vision feature.
-            vision_feature_select_strategy (`str`):
-                The feature selection strategy used to select the vision feature from the vision backbone.
-                Can be one of `"default"` or `"full"`
-        Returns:
-            image_features (`torch.Tensor`)
-            : Image feature tensor of shape `(num_images, image_length, embed_dim)`).
-        """
-        image_outputs = self.base_model.vision_tower(pixel_values, output_hidden_states=True)
-        # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
-        selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
-        if vision_feature_select_strategy == "default":
-            selected_image_feature = selected_image_feature[:, 1:]
-        elif vision_feature_select_strategy == "full":
-            selected_image_feature = selected_image_feature
-        else:
-            raise ValueError(f"Unexpected select feature strategy: {self.base_model.config.vision_feature_select_strategy}")
-        image_features = self.base_model.multi_modal_projector(selected_image_feature)
-
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        #print(f"len(instances): {len(instances)}")
-        with torch.no_grad():
-            image_processor, tokenizer = self.processor.image_processor, self.processor.tokenizer
-            image, prompt, label = tuple(
-                torch.tensor(instances[0].get(key, [])) if type(instances[0].get(key, [])) == list else instances[0].get(key, []) for key in ["image", "prompt", "label"]
-            )
-            print(f"image shape: {image.size()}")
-            print(f"type of tokenizer: {type(tokenizer)}")
-            print(f"label type: {type(label)}")
-            
-            processed_image, processed_text = image_processor(image, return_tensors="pt").to(device="cuda:0"), tokenizer(prompt, return_tensors='pt').to(device="cuda:0")
-            
-            image_embeddings = self.get_image_features(processed_image["pixel_values"], vision_feature_layer=336, vision_feature_select_strategy='full')
-
-            print(f"image embeddings dimension: {image_embeddings.size()}")
-            text_tokens = processed_text["input_ids"]
-            text_attention_mask = processed_text["attention_mask"]
-
-            concatenated_tokens = torch.cat([text_tokens, image_embeddings], dim=1)
-            concatenated_attention_mask = torch.cat([text_attention_mask, torch.ones(image_embeddings.size()[:-1], dtype=torch.long)], dim=1)
-
-            label = tokenizer.encode(label, return_tensors="pt")
-            concatenated_tokens = torch.nn.utils.rnn.pad_sequence(
-                input_ids, batch_first=True, padding_value=tokenizer.pad_token_id
-            )
-            label = torch.nn.utils.rnn.pad_sequence(
-                label, batch_first=True, padding_value=-100
-            )
-
-            #print(f"type(input_ids): {type(input_ids)}")
-            #print(f"type(labels): {type(labels)}")
-            #print(f"type(pixel_values): {type(pixel_values)}")
-            #print(f"type(attention_mask): {type(attention_mask)}")
-
-
-            ret_dict = dict(
-                input_ids=concatenated_tokens,
-                attention_mask=concatenated_attention_mask,
-                labels=label,
-            )
-            
-            for key in instances[0].keys():
-                if key not in ret_dict:
-                    ret_dict[key] = torch.stack([instances[0][key] for key in ["input_ids", "pixel_values", "attention_mask", "label"]])
-            
-            return ret_dict
-
-
-def get_supervised_dataloader(
-    dataset, tokenizer, batch_size, base_model=None, num_workers=4, shuffle=True, sampler=None
-):
-    collator = DataCollator(base_model)    
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        collate_fn=collator,
-        shuffle=None if sampler is not None else shuffle,
-        sampler=sampler,
-    )
-    return dataloader
-'''

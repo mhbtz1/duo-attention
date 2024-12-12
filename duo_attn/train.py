@@ -6,6 +6,8 @@ import json
 import wandb
 import matplotlib.pyplot as plt
 import sys
+import inspect
+from huggingface_hub import hf_hub_download
 #print(sys.path)
 from huggingface_hub import login
 from utils import (
@@ -17,6 +19,7 @@ from utils import (
     save_full_attention_heads,
     seed_everything,
 )
+import duo_attn.data
 from duo_attn.data import (
     get_dataset,
     MultiplePasskeyRetrievalDataset,
@@ -29,8 +32,9 @@ from duo_attn.patch import (
     map_full_attention_heads,
     load_full_attention_heads,
 )
+from duo_attn.passkey_loader import PassKeyDataset
 
-from duo_attn.passkey_loader import PasskeyDataset
+print(f"Originating file for module PasskeyDataset: {inspect.getfile(PassKeyDataset)}")
 
 from duo_attn.loss import l1_loss
 
@@ -118,7 +122,9 @@ def train(
     args, model : LlavaForConditionalGeneration, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
 ):
     local_rank = int(os.environ["LOCAL_RANK"])
+
     model.train()
+    
     if int(os.environ["USE_LLAVA"]):
         for params in model.multi_modal_projector.parameters():
             params.requires_grad = False
@@ -133,7 +139,7 @@ def train(
         if global_step >= args.num_steps:
             break
         for step, batch in enumerate(train_dataloader):
-            #print(f"step {step} batch size: {len(batch.items())}, batch keys: {batch.keys()}")
+            print(f"step {step} batch size: {len(batch.items())}, batch keys: {batch.keys()}")
             if global_step <= resume_step:
                 global_step += 1
                 if rank == 0:
@@ -325,7 +331,8 @@ def main(args):
             os.makedirs(args.output_dir, exist_ok=True)
 
     tokenizer = get_tokenizer(args.model_name)
-
+    processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
+    
     if args.config_name is not None:
         config = AutoConfig.from_pretrained(args.config_name)
     else:
@@ -379,7 +386,6 @@ def main(args):
             num_attn_heads += param.numel()
 
     setup()
-    
     torch.cuda.set_device(local_rank)
     '''
     mp_policy = MixedPrecisionPolicy(
@@ -407,7 +413,10 @@ def main(args):
                     f"Trainable parameter: {name} with shape {param.shape}, dtype {param.dtype}, device {param.device}"
                 )
 
-    haystack_dataset = get_dataset(args.dataset_name, split="train")
+    
+    print(f"dataset name: {args.dataset_name}")
+    print(f"data files: {args.data_files}")
+    haystack_dataset = get_dataset(args.data_files, split="train")
 
     if args.dataset_format == "multiple_passkey":
         train_dataset = MultiplePasskeyRetrievalDataset(
@@ -423,14 +432,15 @@ def main(args):
             num_passkeys=args.num_passkeys,
         )
     elif args.dataset_format == "multiple_image_passkey":
-        processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
-        image_processor, tokenizer = processor.image_processor, processor.tokenizer
-        train_dataset = PasskeyDataset(processor=processor)
+        print("Variable names:", PassKeyDataset.__init__.__code__.co_varnames)
+        print("Argument count:", PassKeyDataset.__init__.__code__.co_argcount)
+        print("PasskeyDataset source: ", inspect.getsource(PassKeyDataset))
+        train_dataset = PassKeyDataset(haystack_dataset=haystack_dataset, processor=processor)
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
 
     train_dataloader = get_supervised_dataloader(
-        train_dataset, tokenizer, args.batch_size, model, shuffle=True
+        train_dataset, tokenizer, args.batch_size, shuffle=True
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0)
@@ -493,7 +503,7 @@ def main(args):
     full_attention_heads = [h.full_tensor() for h in full_attention_heads]
 
     if rank == 0:
-        #print("Training finished")
+        print("Training finished")
         if args.output_dir is not None:
             full_attention_heads_list = full_attention_heads_to_list(
                 full_attention_heads
@@ -512,3 +522,4 @@ if __name__ == "__main__":
     args = parse_args()
     seed_everything(args.seed)
     main(args)
+

@@ -8,29 +8,39 @@ from datasets import Dataset
 from torchvision import transforms
 from typing import Dict, Callable
 from PIL import Image
-from transformers import AutoProcessor
+from transformers import AutoProcessor, CLIPVisionConfig
 from typing import List, Dict, Any
 from duo_attn.data import get_dataset
 import matplotlib.pyplot as plt
+from duo_attn.data import MultiplePasskeyRetrievalDataset
 
 
-class PasskeyDataset(torch.utils.data.Dataset):
-    def __init__(self, processor: AutoProcessor):
-        super(PasskeyDataset, self).__init__()
+class PassKeyDataset(MultiplePasskeyRetrievalDataset):
+
+    def __init__(self, haystack_dataset=N[one, processor=None):
+        print("PasskeyDataset.__init__ called with:", haystack_dataset, processor)
+        super(PassKeyDataset, self).__init__(haystack_dataset, processor.tokenizer, context_length_min=0, context_length_max=2000)
         
         self.processor = processor
         self.transform = transforms.Compose([
             transforms.ToTensor()
         ])  
+        image_processor = self.processor.image_processor
+        processed_image = lambda x: image_processor(x, return_tensors="pt")
+
 
         # note: some weird issue with pixel_values being empty after applying self.processor, might be some issue with images      
-        self.all_images = [self.transform(Image.open(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"), file))).permute(2, 1, 0) 
-                        for file in os.listdir(os.path.join(os.environ["ROOT_DIR"], "augmented_images"))]
-        self.all_prompts = ["USER: <image>\n This is a placeholder prompt. Answer how you see fit.\nASSISTANT:" for _ in range(len(self.all_images))]
-        self.response = ["Here is a placeholder text response." for _ in range(len(self.all_prompts))]
+        self.all_images = [
+                    torch.tensor(processed_image(Image.open(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"), file)))["pixel_values"])
+                    for file in os.listdir(os.path.join(os.environ["ROOT_DIR"], "augmented_images"))]
+
+        print(f"type of self.all_images[0]: {type(self.all_images[0])}")
+
+        print(f"Sampled image random dimensions: {self.all_images[random.randint(0, len(self.all_images)-1)].size()}")
+
+        self.all_items = [super(PassKeyDataset, self).__getitem__(random.randint(0, len(self.context_length_intervals) - 1)) for _ in range(len(self.all_images))]
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        ridx = random.randint(0, len(self.all_images)-1)
         '''
         print(f"Image at index {ridx} : {self.all_images[ridx]}")
         print(f"type(self.all_images[ridx]) : {type(self.all_images[ridx])}")
@@ -38,13 +48,14 @@ class PasskeyDataset(torch.utils.data.Dataset):
         plt.savefig('output.png')
         plt.close()  # Close the figure to free memory
         '''
+        print(f"Finished initialization. len(self.all_items): {len(self.all_items)}")
     def __len__(self):
         return len(self.all_images)
 
     def __getitem__(self, idx):
         #print(tokenized_input['input_ids'].shape, tokenized_input['attention_mask'].shape, tokenized_input['pixel_values'].shape)
-        processor_dict = dict({"image": self.all_images[idx], "prompt": self.all_prompts[idx], "label": self.response[idx]})
-        return processor_dict  # by default, just make the VLM mimic its text output
+        processor_dict = dict({"pixel_values": self.all_images[idx], "input_ids": self.all_items[idx]["input_ids"], "labels": self.all_items[idx]["labels"]})
+        return processor_dict
 
 
 def save_as_hf_dataset_advanced(
