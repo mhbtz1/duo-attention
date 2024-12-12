@@ -500,7 +500,7 @@ def main(args):
     )
 
     full_attention_heads = get_full_attention_heads(model)
-    full_attention_heads = [h.full_tensor() for h in full_attention_heads]
+    full_attention_heads = [h.new_tensor() for h in full_attention_heads]
 
     if rank == 0:
         print("Training finished")
