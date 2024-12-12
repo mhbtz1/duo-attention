@@ -266,8 +266,9 @@ class MenuPriceRetrievalDataset(Dataset):
         
         image_class=self.FOODS[menu_indices[order_idx]]
         image_file = self._choose_image(image_class)
+        print("using image:", image_file)
         image = Image.open(image_file).convert('RGB')
-        pixel_values = torch.tensor(self.image_processor(image).pixel_values[0]).unsqueeze(0)
+        pixel_values = torch.tensor(self.image_processor(image).pixel_values[0])#.unsqueeze(0)
         #breakpoint()
         return dict(input_ids=input_ids, labels=labels, pixel_values=pixel_values)
 
@@ -342,25 +343,28 @@ class DataCollator(object):
     tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        #pad_sequence expects 1D inputs, but tokenizer has output with shape [1, X]
         input_ids, labels, pixel_values = tuple(
-            [instance[key] for instance in instances] for key in ("input_ids", "labels", "pixel_values")
+            [instance[key].squeeze() for instance in instances] for key in ("input_ids", "labels", "pixel_values")
         )
+        
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
         )
         labels = torch.nn.utils.rnn.pad_sequence(
             labels, batch_first=True, padding_value=-100
         )
+        pixel_values = torch.stack(pixel_values)
 
         #images: list of lists of images -> list of images
-        #I *think* that the preprocessor will consume images in batch order from a list
-        image_tensors = [j for i in image_tensors for j in i]
-        image_sizes = [j for i in image_sizes for j in i]       
+        #For other preprocessor, which consumes images in batch order from a list
+        #iimage_tensors = [j for i in pixel_values for j in i]
+        #image_sizes = [j for i in image_sizes for j in i]       
 
         ret_dict = dict(
             input_ids=input_ids,
             labels=labels,
-            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+            attention_mask=input_ids.ne(self.tokenizer.pad_token_id), #Left from text-only
             pixel_values=pixel_values,
         )
         for key in instances[0].keys():
