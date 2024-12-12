@@ -1,18 +1,23 @@
 import torch
-from datasets import load_dataset
+import datasets
+from datasets import load_dataset, DownloadMode, enable_caching
 from dataclasses import dataclass
 from typing import Sequence, Dict
-
 import torch
 import transformers
 from transformers import AutoProcessor, CLIPImageProcessor, CLIPVisionModel
 from torch.utils.data import Dataset, IterableDataset
 
+print(f"HF_DATASETS_CACHE: {datasets.config.HF_DATASETS_CACHE}")
+print(f"HF_CACHE_HOME: {datasets.config.HF_CACHE_HOME}")
 
-def get_dataset(dataset_name, split="train", size=None):
-    dataset = load_dataset("json", data_files=dataset_name, split=split)
+def get_dataset(data_files, split="train", size=None):
+    print(f"dataset name: {dataset_name}")
+    #print(f"data files: {data_files}")
+    dataset = load_dataset("json", data_files=data_files, split=split)
     if size is not None:
         dataset = dataset.select(range(size))
+    print(f"type(dataset): {type(dataset)}")
     return dataset
 
 
@@ -108,11 +113,14 @@ class MultiplePasskeyRetrievalDataset(Dataset):
             self.context_length_min = context_length_min
             self.context_length_max = context_length_max
 
+        print(f"context_lengths_num_intervals: {context_lengths_num_intervals}")
+        print(f"context_length_min: {context_length_min}")
+        print(f"context_length_max: {context_length_max}")
         self.context_length_intervals = torch.linspace(
             self.context_length_min,
             self.context_length_max,
-            context_lengths_num_intervals,
-            dtype=torch.int,
+            context_lengths_num_intervals, # length of each irrelevant block of text in the haystack
+            dtype=torch.int64,
         )
 
         self.depth_ratio_intervals = torch.linspace(
@@ -274,19 +282,74 @@ class MultiplePasskeyRetrievalDataset(Dataset):
 @dataclass
 class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
-    '''
-    def __init__(self, tokenizer, image_processor):
-        self.tokenizer = tokenizer
-        self.image_processor = image_processor
-    '''
+
+    tokenizer: transformers.PreTrainedTokenizer
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        #pad_sequence expects 1D inputs, but tokenizer has output with shape [1, X]
+        print(f"keys in instances: {instances[0].keys()}")
+        print(f"input_ids shape: {instances[0]['input_ids'].size()}")
+        print(f"pixel_values shape: {instances[0]['pixel_values'].size()}")
+        print(f"labels shape: {instances[0]['labels'].size()}" )
+
+        input_ids, labels, pixel_values = tuple(
+            [instance[key].squeeze() for instance in instances] for key in ("input_ids", "labels", "pixel_values")
+        )
+
+
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+        )
+        labels = torch.nn.utils.rnn.pad_sequence(
+            labels, batch_first=True, padding_value=-100
+        )
+        pixel_values = torch.stack(pixel_values)
+
+        #images: list of lists of images -> list of images
+        #For other preprocessor, which consumes images in batch order from a list
+        #iimage_tensors = [j for i in pixel_values for j in i]
+        #image_sizes = [j for i in image_sizes for j in i]       
+
+        ret_dict = dict(
+            input_ids=input_ids,
+            labels=labels,
+            attention_mask=input_ids.ne(self.tokenizer.pad_token_id), #Left from text-only
+            pixel_values=pixel_values,
+        )
+        for key in instances[0].keys():
+            if key not in ret_dict: #This should add the image stuff to the return dict
+                ret_dict[key] = torch.stack([instance[key] for instance in instances])
+        return ret_dict
+
+def get_supervised_dataloader(
+    dataset, tokenizer, batch_size, num_workers=4, shuffle=True, sampler=None
+):
+    collator = DataCollator(tokenizer)
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        collate_fn=collator,
+        shuffle=None if sampler is not None else shuffle,
+        sampler=sampler,
+    )
+    return dataloader
+
+
+
+
+
+
+
+'''
+@dataclass
+class DataCollator(object):
+    """Collate examples for supervised fine-tuning."""
+    
     
     def __init__(self, base_model):
         self.processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
         self.base_model = base_model
-    '''
-    tokenizer: transformers.models.llama.tokenization_llama_fast.LlamaTokenizerFast[]
-    image_processor: transformers.CLIPImageProcessor
-    '''
 
     def get_image_features(
         self, pixel_values: torch.FloatTensor, vision_feature_layer: int, vision_feature_select_strategy: str
@@ -319,50 +382,51 @@ class DataCollator(object):
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         #print(f"len(instances): {len(instances)}")
-        image_processor, tokenizer = self.processor.image_processor, self.processor.tokenizer
-        image, prompt, label = tuple(
-            torch.tensor(instances[0].get(key, [])) if type(instances[0].get(key, [])) == list else instances[0].get(key, []) for key in ["image", "prompt", "label"]
-        )
-        print(f"image shape: {image.size()}")
-        print(f"type of tokenizer: {type(tokenizer)}")
-        print(f"label type: {type(label)}")
-        
-        processed_image, processed_text = image_processor(image, return_tensors="pt").to(device="cuda:0"), tokenizer(prompt, return_tensors='pt').to(device="cuda:0")
         with torch.no_grad():
+            image_processor, tokenizer = self.processor.image_processor, self.processor.tokenizer
+            image, prompt, label = tuple(
+                torch.tensor(instances[0].get(key, [])) if type(instances[0].get(key, [])) == list else instances[0].get(key, []) for key in ["image", "prompt", "label"]
+            )
+            print(f"image shape: {image.size()}")
+            print(f"type of tokenizer: {type(tokenizer)}")
+            print(f"label type: {type(label)}")
+            
+            processed_image, processed_text = image_processor(image, return_tensors="pt").to(device="cuda:0"), tokenizer(prompt, return_tensors='pt').to(device="cuda:0")
+            
             image_embeddings = self.get_image_features(processed_image["pixel_values"], vision_feature_layer=336, vision_feature_select_strategy='full')
 
-        print(f"image embeddings dimension: {image_embeddings.size()}")
-        text_tokens = processed_text["input_ids"]
-        text_attention_mask = processed_text["attention_mask"]
+            print(f"image embeddings dimension: {image_embeddings.size()}")
+            text_tokens = processed_text["input_ids"]
+            text_attention_mask = processed_text["attention_mask"]
 
-        concatenated_tokens = torch.cat([text_tokens, image_embeddings], dim=1)
-        concatenated_attention_mask = torch.cat([text_attention_mask, torch.ones(image_embeddings.size()[:-1], dtype=torch.long)], dim=1)
+            concatenated_tokens = torch.cat([text_tokens, image_embeddings], dim=1)
+            concatenated_attention_mask = torch.cat([text_attention_mask, torch.ones(image_embeddings.size()[:-1], dtype=torch.long)], dim=1)
 
-        label = tokenizer.encode(label, return_tensors="pt")
-        concatenated_tokens = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=tokenizer.pad_token_id
-        )
-        label = torch.nn.utils.rnn.pad_sequence(
-            label, batch_first=True, padding_value=-100
-        )
+            label = tokenizer.encode(label, return_tensors="pt")
+            concatenated_tokens = torch.nn.utils.rnn.pad_sequence(
+                input_ids, batch_first=True, padding_value=tokenizer.pad_token_id
+            )
+            label = torch.nn.utils.rnn.pad_sequence(
+                label, batch_first=True, padding_value=-100
+            )
 
-        #print(f"type(input_ids): {type(input_ids)}")
-        #print(f"type(labels): {type(labels)}")
-        #print(f"type(pixel_values): {type(pixel_values)}")
-        #print(f"type(attention_mask): {type(attention_mask)}")
+            #print(f"type(input_ids): {type(input_ids)}")
+            #print(f"type(labels): {type(labels)}")
+            #print(f"type(pixel_values): {type(pixel_values)}")
+            #print(f"type(attention_mask): {type(attention_mask)}")
 
 
-        ret_dict = dict(
-            input_ids=concatenated_tokens,
-            attention_mask=concatenated_attention_mask,
-            labels=label,
-        )
-        '''
-        for key in instances[0].keys():
-            if key not in ret_dict:
-                ret_dict[key] = torch.stack([instances[0][key] for key in ["input_ids", "pixel_values", "attention_mask", "label"]])
-        '''
-        return ret_dict
+            ret_dict = dict(
+                input_ids=concatenated_tokens,
+                attention_mask=concatenated_attention_mask,
+                labels=label,
+            )
+            
+            for key in instances[0].keys():
+                if key not in ret_dict:
+                    ret_dict[key] = torch.stack([instances[0][key] for key in ["input_ids", "pixel_values", "attention_mask", "label"]])
+            
+            return ret_dict
 
 
 def get_supervised_dataloader(
@@ -378,3 +442,4 @@ def get_supervised_dataloader(
         sampler=sampler,
     )
     return dataloader
+'''
