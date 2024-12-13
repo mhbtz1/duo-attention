@@ -17,7 +17,7 @@ from duo_attn.data import MultiplePasskeyRetrievalDataset
 
 class PassKeyDataset(MultiplePasskeyRetrievalDataset):
 
-    def __init__(self, haystack_dataset=N[one, processor=None):
+    def __init__(self, haystack_dataset=None, processor=None):
         print("PasskeyDataset.__init__ called with:", haystack_dataset, processor)
         super(PassKeyDataset, self).__init__(haystack_dataset, processor.tokenizer, context_length_min=0, context_length_max=2000)
         
