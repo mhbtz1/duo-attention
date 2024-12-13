@@ -115,7 +115,21 @@ def convert_image_tensor_to_llava_tokens(
     )
 
     return image_tokens
-
+#Copied from newer version of transformers library
+def get_image_features(
+        model, pixel_values: torch.FloatTensor, vision_feature_layer: int, vision_feature_select_strategy: str
+    ):
+        image_outputs = model.vision_tower(pixel_values, output_hidden_states=True)
+        # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
+        selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+        if vision_feature_select_strategy == "default":
+            selected_image_feature = selected_image_feature[:, 1:]
+        elif vision_feature_select_strategy == "full":
+            selected_image_feature = selected_image_feature
+        else:
+            raise ValueError(f"Unexpected select feature strategy: {model.config.vision_feature_select_strategy}")
+        image_features = model.multi_modal_projector(selected_image_feature)
+        return image_features
 
 
 def train(
@@ -181,10 +195,32 @@ def train(
 
             if (isinstance(model, LlavaForConditionalGeneration)):
                 #print(f"type(model.language_model): {type(model.language_model)}")
+                #Do input embedding and stuff
+                #Similar duplication of images to match input_ids
+                pixel_values = torch.cat([batch["pixel_values"], batch["pixel_values"]], dim=0)
+                inputs_embeds = model.get_input_embeddings()(input_ids)
+                inputs_embeds = inputs_embeds.to("cuda:0") #Should this use local_rank?
+                image_features = get_image_features(model, pixel_values, vision_feature_layer=336, vision_feature_select_strategy='full')
+                n_image_tokens = (input_ids == model.config.image_token_index).sum().item()
+                n_image_features = image_features.shape[0] * image_features.shape[1]
+                if n_image_tokens != n_image_features:
+                    raise ValueError(
+                        f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+                    )
+                special_image_mask = (
+                    (input_ids == model.config.image_token_index)
+                    .unsqueeze(-1)
+                    .expand_as(inputs_embeds)
+                    .to(inputs_embeds.device)
+                )
+                image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
+                inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
+
                 outputs = model.language_model.model(
-                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end].to("cuda:0"),
-                    position_ids=position_ids.to("cuda:0"),
-                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end].to("cuda:0"),
+                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end], #.to("cuda:0"),
+                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end], #.to("cuda:0"),
+                    position_ids=position_ids, #.to("cuda:0"),
+                    inputs_embeds=inputs_embeds,
                 )
             elif (isinstance(model, LlamaForCausalLM)):
                 outputs = model(
