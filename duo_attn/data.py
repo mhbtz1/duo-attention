@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from typing import Sequence, Dict
 import torch
 import transformers
-from transformers import AutoProcessor, CLIPImageProcessor, CLIPVisionModel
 from torch.utils.data import Dataset, IterableDataset
+
+DEFAULT_IMAGE_TOKEN = "<image>"
+
 
 print(f"HF_DATASETS_CACHE: {datasets.config.HF_DATASETS_CACHE}")
 print(f"HF_CACHE_HOME: {datasets.config.HF_CACHE_HOME}")
@@ -19,6 +21,7 @@ def get_dataset(data_files, split="train", size=None):
         dataset = dataset.select(range(size))
     print(f"type(dataset): {type(dataset)}")
     return dataset
+
 
 
 class MultiplePasskeyRetrievalDataset(Dataset):
@@ -278,12 +281,17 @@ class MultiplePasskeyRetrievalDataset(Dataset):
         labels = torch.tensor([-100] * len(context_tokens) + qa_tokens)
         return dict(input_ids=input_ids, labels=labels)
 
+from transformers.image_utils import get_image_size, to_numpy_array
+
 
 @dataclass
 class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
 
-    tokenizer: transformers.PreTrainedTokenizer
+    #tokenizer: transformers.PreTrainedTokenizer
+    def __init__(self, processor: transformers.LlavaProcessor):
+        self.processor = processor
+        self.image_token = self.processor.tokenizer.encode(DEFAULT_IMAGE_TOKEN)[-1]
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         #pad_sequence expects 1D inputs, but tokenizer has output with shape [1, X]
@@ -298,23 +306,41 @@ class DataCollator(object):
             [instance[key].squeeze() for instance in instances] for key in ("input_ids", "labels", "pixel_values")
         )
 
+        #Everywhere there is an image token (32000), we need to replace it with many instances to match the size of an image
+        #Bacuse this is all batched, we can assume all images in the batch have the same size. 
+        height, width = get_image_size(to_numpy_array(pixel_values[0])) 
+        num_image_tokens = (height // self.processor.patch_size) * (
+            width // self.processor.patch_size
+        ) + 1 #1 == self.processor.num_additional_image_tokens 
+        if self.processor.vision_feature_select_strategy == "default":
+            num_image_tokens -= 1
+        #print("Target:", num_image_tokens)
+        repeated_image = torch.ones(num_image_tokens, dtype=input_ids[0].dtype) * self.image_token
+        repeated_labels = torch.ones(num_image_tokens, dtype=labels[0].dtype) * -100 #Hardcoded 
+        for i in range(len(input_ids)):
+            ids = input_ids[i]
+            lab = labels[i]
+            image_idx = (ids == self.image_token).nonzero()[0]
+            for j, idx in enumerate(image_idx):
+                idx += j * (num_image_tokens-1) #Correct for previous insertions
+                ids = torch.cat((ids[:idx], repeated_image, ids[idx+1:]))
+                lab = torch.cat((lab[:idx], repeated_labels, lab[idx+1:]))
+            input_ids[i] = ids
+            labels[i] = lab
+
+
         input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+            input_ids, batch_first=True, padding_value=self.processor.tokenizer.pad_token_id
         )
         labels = torch.nn.utils.rnn.pad_sequence(
             labels, batch_first=True, padding_value=-100
         )
         pixel_values = torch.stack(pixel_values)
 
-        #images: list of lists of images -> list of images
-        #For other preprocessor, which consumes images in batch order from a list
-        #iimage_tensors = [j for i in pixel_values for j in i]
-        #image_sizes = [j for i in image_sizes for j in i]       
-
         ret_dict = dict(
             input_ids=input_ids,
             labels=labels,
-            attention_mask=input_ids.ne(self.tokenizer.pad_token_id), #Left from text-only
+            attention_mask=input_ids.ne(self.processor.tokenizer.pad_token_id), #Left from text-only
             pixel_values=pixel_values,
         )
         for key in instances[0].keys():
@@ -323,9 +349,9 @@ class DataCollator(object):
         return ret_dict
 
 def get_supervised_dataloader(
-    dataset, tokenizer, batch_size, num_workers=4, shuffle=True, sampler=None
+    dataset, processor, batch_size, num_workers=4, shuffle=True, sampler=None
 ):
-    collator = DataCollator(tokenizer)
+    collator = DataCollator(processor)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,

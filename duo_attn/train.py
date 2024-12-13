@@ -139,7 +139,7 @@ def get_image_features(
 
 
 def train(
-    args, model : LlavaForConditionalGeneration, rank, world_size, train_dataloader, optimizer, scheduler, resume_step
+    args, model : LlavaForConditionalGeneration, rank, world_size, train_dataloader, optimizer, scheduler, resume_step, processor
 ):
     local_rank = int(os.environ["LOCAL_RANK"])
 
@@ -208,9 +208,11 @@ def train(
                 inputs_embeds = model.get_input_embeddings()(input_ids)
                 inputs_embeds = inputs_embeds.to("cuda:0") #Should this use local_rank?
                 #Image embeddings
-                image_features = get_image_features(model, pixel_values, vision_feature_select_strategy='full')
+                #Want to use the same strategy as was used to process images
+                image_features = get_image_features(model, pixel_values, vision_feature_select_strategy=processor.vision_feature_select_strategy)
                 #Get mask for loccations of images in text
-                #print("Image token check:", model.config.image_token_index, model.config.image_token_index in input_ids, input_ids.max(), input_ids.min())
+                print("Image token check:", model.config.image_token_index, model.config.image_token_index in input_ids, input_ids.max(), input_ids.min())
+                print(input_ids.shape, pixel_values.shape)
                 n_image_tokens = (input_ids == model.config.image_token_index).sum().item()
                 n_image_features = image_features.shape[0] * image_features.shape[1]
                 if n_image_tokens != n_image_features:
@@ -228,7 +230,7 @@ def train(
                 inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
                 outputs = model.language_model.model(
-                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end], #.to("cuda:0"),
+                    #input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end], #.to("cuda:0"),
                     attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end], #.to("cuda:0"),
                     position_ids=position_ids, #.to("cuda:0"),
                     inputs_embeds=inputs_embeds,
@@ -497,12 +499,15 @@ def main(args):
             context_lengths_num_intervals=args.context_lengths_num_intervals,
             depth_ratio_num_intervals=args.depth_ratio_num_intervals,
             num_passkeys=args.num_passkeys,
+            buffer_size=600 #Made larger to allow space for the image w/ size 577
         )
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
-
+    
+    # Note: this won't work for Llamaanymore because it is using 
+    # the modified dataloader, not the original from text-DA
     train_dataloader = get_supervised_dataloader(
-        train_dataset, tokenizer, args.batch_size, shuffle=True
+        train_dataset, processor, args.batch_size, shuffle=True
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0)
@@ -559,6 +564,7 @@ def main(args):
         optimizer,
         scheduler,
         resume_step,
+        processor
     )
 
     full_attention_heads = get_full_attention_heads(model)
