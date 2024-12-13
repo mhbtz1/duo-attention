@@ -266,7 +266,7 @@ class MenuPriceRetrievalDataset(Dataset):
         
         image_class=self.FOODS[menu_indices[order_idx]]
         image_file = self._choose_image(image_class)
-        print("using image:", image_file)
+        #print("using image:", image_file)
         image = Image.open(image_file).convert('RGB')
         pixel_values = torch.tensor(self.image_processor(image).pixel_values[0])#.unsqueeze(0)
         #breakpoint()

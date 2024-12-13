@@ -211,8 +211,8 @@ def train(
                 #Want to use the same strategy as was used to process images
                 image_features = get_image_features(model, pixel_values, vision_feature_select_strategy=processor.vision_feature_select_strategy)
                 #Get mask for loccations of images in text
-                print("Image token check:", model.config.image_token_index, model.config.image_token_index in input_ids, input_ids.max(), input_ids.min())
-                print(input_ids.shape, pixel_values.shape)
+                #print("Image token check:", model.config.image_token_index, model.config.image_token_index in input_ids, input_ids.max(), input_ids.min())
+                #print(input_ids.shape, pixel_values.shape)
                 n_image_tokens = (input_ids == model.config.image_token_index).sum().item()
                 n_image_features = image_features.shape[0] * image_features.shape[1]
                 if n_image_tokens != n_image_features:
@@ -498,7 +498,6 @@ def main(args):
             context_length_max=args.context_length_max,
             context_lengths_num_intervals=args.context_lengths_num_intervals,
             depth_ratio_num_intervals=args.depth_ratio_num_intervals,
-            num_passkeys=args.num_passkeys,
             buffer_size=600 #Made larger to allow space for the image w/ size 577
         )
     else:
