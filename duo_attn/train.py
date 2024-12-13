@@ -32,6 +32,8 @@ from duo_attn.patch import (
     map_full_attention_heads,
     load_full_attention_heads,
 )
+
+from duo_attn.data_menu import MenuPriceRetrievalDataset
 from duo_attn.passkey_loader import PassKeyDataset
 
 print(f"Originating file for module PasskeyDataset: {inspect.getfile(PassKeyDataset)}")
@@ -47,6 +49,7 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     apply_activation_checkpointing
 )
 import types
+from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration, AutoProcessor, CLIPImageProcessor, AutoTokenizer
 
@@ -117,8 +120,11 @@ def convert_image_tensor_to_llava_tokens(
     return image_tokens
 #Copied from newer version of transformers library
 def get_image_features(
-        model, pixel_values: torch.FloatTensor, vision_feature_layer: int, vision_feature_select_strategy: str
+        model, pixel_values: torch.FloatTensor, vision_feature_select_strategy: str, vision_feature_layer: Optional[int] = None
     ):
+        vision_feature_layer = ( #Added
+            vision_feature_layer if vision_feature_layer is not None else model.config.vision_feature_layer
+        )
         image_outputs = model.vision_tower(pixel_values, output_hidden_states=True)
         # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
         selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
@@ -196,11 +202,15 @@ def train(
             if (isinstance(model, LlavaForConditionalGeneration)):
                 #print(f"type(model.language_model): {type(model.language_model)}")
                 #Do input embedding and stuff
-                #Similar duplication of images to match input_ids
+                #Load images, similar duplication of images to match input_ids
                 pixel_values = torch.cat([batch["pixel_values"], batch["pixel_values"]], dim=0)
+                #Text embeddings
                 inputs_embeds = model.get_input_embeddings()(input_ids)
                 inputs_embeds = inputs_embeds.to("cuda:0") #Should this use local_rank?
-                image_features = get_image_features(model, pixel_values, vision_feature_layer=336, vision_feature_select_strategy='full')
+                #Image embeddings
+                image_features = get_image_features(model, pixel_values, vision_feature_select_strategy='full')
+                #Get mask for loccations of images in text
+                #print("Image token check:", model.config.image_token_index, model.config.image_token_index in input_ids, input_ids.max(), input_ids.min())
                 n_image_tokens = (input_ids == model.config.image_token_index).sum().item()
                 n_image_features = image_features.shape[0] * image_features.shape[1]
                 if n_image_tokens != n_image_features:
@@ -213,6 +223,7 @@ def train(
                     .expand_as(inputs_embeds)
                     .to(inputs_embeds.device)
                 )
+                #Merge image embeddings into text embeddings
                 image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
                 inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
@@ -366,8 +377,9 @@ def main(args):
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
 
-    tokenizer = get_tokenizer(args.model_name)
+    #tokenizer = get_tokenizer(args.model_name)
     processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
+    image_processor, tokenizer = processor.image_processor, processor.tokenizer
     
     if args.config_name is not None:
         config = AutoConfig.from_pretrained(args.config_name)
@@ -472,6 +484,20 @@ def main(args):
         print("Argument count:", PassKeyDataset.__init__.__code__.co_argcount)
         print("PasskeyDataset source: ", inspect.getsource(PassKeyDataset))
         train_dataset = PassKeyDataset(haystack_dataset=haystack_dataset, processor=processor)
+    elif args.dataset_format == "menu": #TODO: pre-generate and stage a menu dataset
+        train_dataset = MenuPriceRetrievalDataset(
+            haystack_dataset,
+            tokenizer,
+            image_processor,
+            max_length=args.max_length,
+            min_depth_ratio=args.min_needle_depth_ratio,
+            max_depth_ratio=args.max_needle_depth_ratio,
+            context_length_min=args.context_length_min,
+            context_length_max=args.context_length_max,
+            context_lengths_num_intervals=args.context_lengths_num_intervals,
+            depth_ratio_num_intervals=args.depth_ratio_num_intervals,
+            num_passkeys=args.num_passkeys,
+        )
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
 
