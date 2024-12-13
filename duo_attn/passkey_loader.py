@@ -14,6 +14,8 @@ from duo_attn.data import get_dataset
 import matplotlib.pyplot as plt
 from duo_attn.data import MultiplePasskeyRetrievalDataset
 
+DEFAULT_IMAGE_TOKEN = "<image>"
+
 
 class PassKeyDataset(MultiplePasskeyRetrievalDataset):
 
@@ -22,9 +24,9 @@ class PassKeyDataset(MultiplePasskeyRetrievalDataset):
         super(PassKeyDataset, self).__init__(haystack_dataset, 
                                             processor.tokenizer, 
                                             context_length_min=0, 
-                                            context_length_max=2000
-                                            retrieval_question="What color and size shape do you see in the image? Explain your thinking"
-                                            prompt1="Here is an image of some scene: " + DEFAULT_IMAGE_TOKEN + " Now, here is a long block of text: <text>"
+                                            context_length_max=2000,
+                                            retrieval_question="What color and size shape do you see in the image? Explain your thinking",
+                                            prompt1="Here is an image of some scene: " + DEFAULT_IMAGE_TOKEN + " Now, here is a long block of text: <text>",
                                             prompt2=" </text>.\n\n",)
         
         self.processor = processor
