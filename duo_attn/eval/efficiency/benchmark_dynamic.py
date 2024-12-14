@@ -1,4 +1,6 @@
 import torch
+import random
+from PIL import Image
 import os
 from duo_attn.patch import load_full_attention_heads
 from duo_attn.utils import (
@@ -86,6 +88,10 @@ if __name__ == "__main__":
         :, :args.max_length - 1
     ]
 
+    random_image = random.sample(os.listdir(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"))), 1)
+    random_image = Image.open(random_image)
+    pixel_values = image_processor(random_image, return_tensors="pt")
+
     print(input_ids.shape)
     # pre-filling
     torch.cuda.reset_peak_memory_stats()
@@ -94,6 +100,7 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model(
                 input_ids=input_ids,
+                pixel_values=pixel_values,
                 past_key_values=None,
                 use_cache=True,
             )
