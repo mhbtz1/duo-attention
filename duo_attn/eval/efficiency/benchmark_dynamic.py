@@ -12,6 +12,7 @@ from duo_attn.utils import (
 )
 from duo_attn.patch import enable_duo_attention_eval
 from utils import bench_func
+from llava.model.builder import load_pretrained_model
 
 from huggingface_hub import login
 from transformers import (
@@ -43,7 +44,6 @@ if __name__ == "__main__":
 
 
     with torch.no_grad():
-        #model = load_full_attention_heads(args.output_dir, filename="full_attention_heads.tsv")
         model = LlavaForConditionalGeneration.from_pretrained(
             "llava-hf/llava-1.5-7b-hf",
             config=config,
