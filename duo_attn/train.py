@@ -212,7 +212,7 @@ def train(
                     seq_parallel_chunk_end,
                 )
                 .unsqueeze(0)
-                .to("cuda:0")
+                .to(f"cuda:{local_rank}")
             )
 
             # print(f"type(model): {type(model)}")
@@ -228,9 +228,7 @@ def train(
                 )
                 # Text embeddings
                 inputs_embeds = model.get_input_embeddings()(input_ids)
-                inputs_embeds = inputs_embeds.to(
-                    "cuda:0"
-                )  # Should this use local_rank?
+                inputs_embeds = inputs_embeds.to(f"cuda:{local_rank}")
                 # Image embeddings
                 # Want to use the same strategy as was used to process images
                 image_features = get_image_features(
@@ -503,7 +501,7 @@ def main(args):
     print(f"data files: {args.data_files}")
     print(f"dataset_format: {args.dataset_format}")
 
-    if args.dataset_format == "multiple_passkey":
+    if args.dataset_format == "multiple_passkey": #Deprecated
         haystack_dataset = get_dataset(args.data_files, split="train")
         train_dataset = MultiplePasskeyRetrievalDataset(
             haystack_dataset,
@@ -538,6 +536,7 @@ def main(args):
             context_length_max=args.context_length_max,
             context_lengths_num_intervals=args.context_lengths_num_intervals,
             depth_ratio_num_intervals=args.depth_ratio_num_intervals,
+            num_items = args.num_passkeys,
             buffer_size=600,  # Made larger to allow space for the image w/ size 577
         )
     elif args.dataset_format == "vqav2":
@@ -549,7 +548,7 @@ def main(args):
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
 
-    # Note: this won't work for Llamaanymore because it is using
+    # Note: this won't work for Llama anymore because it is using
     # the modified dataloader, not the original from text-DA
     train_dataloader = get_supervised_dataloader(
         train_dataset, processor, args.batch_size, shuffle=True
