@@ -39,32 +39,18 @@ from duo_attn.loss import l1_loss
 
 import torch.distributed as dist
 
-from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
-from torch.distributed._tensor import DeviceMesh
-from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    apply_activation_checkpointing,
-)
-import types
+from torch.distributed._composable.fsdp import fully_shard
 from typing import Optional
 
 from transformers import (
     AutoModelForCausalLM,
     AutoConfig,
-    BitsAndBytesConfig,
     LlavaForConditionalGeneration,
     AutoProcessor,
-    CLIPImageProcessor,
-    AutoTokenizer,
 )
 
 from transformers.models.llama.modeling_llama import (
-    LlamaDecoderLayer,
-    LlamaRMSNorm,
     LlamaForCausalLM,
-)
-from transformers.models.mistral.modeling_mistral import (
-    MistralDecoderLayer,
-    MistralRMSNorm,
 )
 
 

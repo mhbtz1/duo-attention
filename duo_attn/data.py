@@ -1,11 +1,10 @@
 import torch
 import datasets
-from datasets import load_dataset, DownloadMode, enable_caching
+from datasets import load_dataset
 from dataclasses import dataclass
 from typing import Sequence, Dict
-import torch
 import transformers
-from torch.utils.data import Dataset, IterableDataset
+from torch.utils.data import Dataset
 
 DEFAULT_IMAGE_TOKEN = "<image>"
 
