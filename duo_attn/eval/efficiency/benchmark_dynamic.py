@@ -2,6 +2,7 @@ import torch
 import random
 from PIL import Image
 import os
+from duo_attn.data_vqa import VQADataset
 from duo_attn.patch import load_full_attention_heads
 from duo_attn.utils import (
     get_model,
@@ -26,6 +27,9 @@ from transformers import (
 
 
 if __name__ == "__main__":
+
+    vqa_dataset = VQADataset()
+
     args = parse_args()
 
     if args.seed is not None:
@@ -84,20 +88,23 @@ if __name__ == "__main__":
 
     text = "a\n\n" * args.max_length
 
-    input_ids = tokenizer(text, return_tensors="pt").input_ids.to("cuda")[
-        :, :args.max_length - 1
-    ]
+    def sample_data():
+        vqa_sample = vqa_dataset[random.sample([i for i in range(len(vqa_dataset))], 1)]
+        input_ids, pixel_values = vqa_sample["input_ids"], vqa_sample["pixel_values"]
+        input_ids = tokenizer(text, return_tensors="pt").input_ids.to("cuda")[
+            :, :args.max_length - 1
+        ]
 
-    random_image = random.sample(os.listdir(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"))), 1)
-    random_image = Image.open(random_image)
-    pixel_values = image_processor(random_image, return_tensors="pt")
+        random_image = random.sample(os.listdir(os.path.join(os.path.join(os.environ["ROOT_DIR"], "augmented_images"))), 1)
+        random_image = Image.open(random_image)
+        pixel_values = image_processor(random_image, return_tensors="pt")
 
-    print(input_ids.shape)
     # pre-filling
     torch.cuda.reset_peak_memory_stats()
 
     def func1():
         with torch.no_grad():
+            input_ids, pixel_values = sample_data()
             outputs = model(
                 input_ids=input_ids,
                 pixel_values=pixel_values,
@@ -109,11 +116,13 @@ if __name__ == "__main__":
     ctx_latency, ctx_memory = 0, 0
 
     with torch.no_grad():
+        input_ids, pixel_values = sample_data()
         outputs = model(
             input_ids=input_ids,
             past_key_values=None,
             use_cache=True,
         )
+
     print(
         f"Peak memory usage in the pre-filling stage: {torch.cuda.max_memory_allocated() / 1024 / 1024:.2f} MB"
     )
@@ -129,7 +138,7 @@ if __name__ == "__main__":
                 use_cache=True,
             )
 
-    gen_latency, gen_memory = bench_func(func2, num_steps=100, num_warmup_steps=10)
+    gen_latency, gen_memory = bench_func(func1, num_steps=100, num_warmup_steps=10)
 
     if args.output_dir is not None:
         os.makedirs(args.output_dir, exist_ok=True)
