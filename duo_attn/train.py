@@ -34,6 +34,7 @@ from duo_attn.patch import (
 )
 
 from duo_attn.data_menu import MenuPriceRetrievalDataset
+from duo_attn.data_vqa import VQADataset
 from duo_attn.passkey_loader import PassKeyDataset
 
 print(f"Originating file for module PasskeyDataset: {inspect.getfile(PassKeyDataset)}")
@@ -466,9 +467,10 @@ def main(args):
     
     print(f"dataset name: {args.dataset_name}")
     print(f"data files: {args.data_files}")
-    haystack_dataset = get_dataset(args.data_files, split="train")
+    print(f'dataset_format: {args.dataset_format}')
 
     if args.dataset_format == "multiple_passkey":
+        haystack_dataset = get_dataset(args.data_files, split="train")
         train_dataset = MultiplePasskeyRetrievalDataset(
             haystack_dataset,
             tokenizer,
@@ -482,11 +484,13 @@ def main(args):
             num_passkeys=args.num_passkeys,
         )
     elif args.dataset_format == "multiple_image_passkey":
+        haystack_dataset = get_dataset(args.data_files, split="train")
         print("Variable names:", PassKeyDataset.__init__.__code__.co_varnames)
         print("Argument count:", PassKeyDataset.__init__.__code__.co_argcount)
         print("PasskeyDataset source: ", inspect.getsource(PassKeyDataset))
         train_dataset = PassKeyDataset(haystack_dataset=haystack_dataset, processor=processor)
     elif args.dataset_format == "menu": #TODO: pre-generate and stage a menu dataset
+        haystack_dataset = get_dataset(args.data_files, split="train")
         train_dataset = MenuPriceRetrievalDataset(
             haystack_dataset,
             tokenizer,
@@ -500,6 +504,13 @@ def main(args):
             depth_ratio_num_intervals=args.depth_ratio_num_intervals,
             buffer_size=600 #Made larger to allow space for the image w/ size 577
         )
+    elif args.dataset_format == "vqav2":
+        print('USING VQAV2')
+        train_dataset = VQADataset(
+            tokenizer,
+            image_processor,
+        )
+    
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
     
