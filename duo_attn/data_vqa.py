@@ -88,17 +88,19 @@ _SUB_FOLDER_OR_FILE_NAME = {
 class VQADataset(Dataset):
     def __init__(
         self,
-        tokenizer: transformers.PreTrainedTokenizer,
-        image_processor,
+        processor,
+        #tokenizer: transformers.PreTrainedTokenizer,
+        #image_processor,
         questions_path="/workspace/coco2014/v2_OpenEnded_mscoco_train2014_questions.json",
         images_path="/workspace/coco2014/images/train2014",
         annotations_path="/workspace/coco2014/v2_mscoco_train2014_annotations.json",
         split="train",
         size=None,
     ):
-        self.tokenizer = tokenizer
-        self.image_processor = image_processor
-        self.tokenizer_encode = self._get_encoder(self.tokenizer)
+        #self.tokenizer = tokenizer
+        #self.image_processor = image_processor
+        #self.tokenizer_encode = self._get_encoder(self.tokenizer)
+        self.processor = processor
         self.questions = json.load(open(questions_path, "r"))
         self.images = images_path
         self.annotations = json.load(open(annotations_path, "r"))
@@ -137,13 +139,18 @@ class VQADataset(Dataset):
             self.questions["questions"][idx]["question_id"]
             == self.annotations["annotations"][idx]["question_id"]
         )
-        question_tokens = self.tokenizer_encode(question)
-        answer_tokens = self.tokenizer_encode(answer)
-
+        #question_tokens = self.tokenizer_encode(question)
         image = Image.open(image_file).convert("RGB")
-        pixel_values = torch.tensor(
-            self.image_processor(image).pixel_values[0]
-        )  # .unsqueeze(0)
+        #NOTE: This will expand the image token here, so it does not also need to be done by the caller
+        inputs = self.processor(images=image, text=question, return_tensors="pt")
+        pixel_values = inputs.pixel_values[0]
+        question_tokens = inputs.input_ids[0]
+
+        answer_tokens = self.processor.tokenizer(answer, return_tensors="pt").input_ids[0,1:]
+
+        #pixel_values = torch.tensor(
+        #    self.image_processor(image).pixel_values[0]
+        #)  # .unsqueeze(0)
 
         input_ids = torch.cat((question_tokens, answer_tokens))
         labels = torch.cat((torch.tensor([-100] * len(question_tokens)), answer_tokens))

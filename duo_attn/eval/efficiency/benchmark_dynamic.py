@@ -28,7 +28,6 @@ from transformers import (
 
 if __name__ == "__main__":
 
-    vqa_dataset = VQADataset()
 
     args = parse_args()
 
@@ -37,6 +36,17 @@ if __name__ == "__main__":
 
     processor = AutoProcessor.from_pretrained("llava-hf/llava-1.5-7b-hf")
     image_processor, tokenizer = processor.image_processor, processor.tokenizer
+
+    ROOT_DIR = os.getenv("ROOT_DIR")
+    if not ROOT_DIR:
+        ROOT_DIR="/workspace/"
+    questions_path=os.path.join(ROOT_DIR, "coco2014/v2_OpenEnded_mscoco_train2014_questions.json")
+    images_path=os.path.join(ROOT_DIR, "coco2014/images/train2014")
+    annotations_path=os.path.join(ROOT_DIR, "coco2014/v2_mscoco_train2014_annotations.json")
+
+    
+    vqa_dataset = VQADataset(processor, questions_path=questions_path, images_path=images_path, annotations_path=annotations_path)
+
     if args.config_name is not None:
         config = AutoConfig.from_pretrained(args.config_name)
     else:
@@ -82,15 +92,19 @@ if __name__ == "__main__":
         enable_duo_attention_eval(
             model.language_model,
             full_attention_heads,
-            16,
-            64,
+            128,
+            256,
         )
 
     text = "a\n\n" * args.max_length
 
+    random.seed(0)
+
     def sample_data():
-        vqa_sample = vqa_dataset[random.sample([i for i in range(len(vqa_dataset))], 1)]
+        vqa_sample = vqa_dataset[random.randrange(len(vqa_dataset))]
         input_ids, pixel_values = vqa_sample["input_ids"], vqa_sample["pixel_values"]
+        return input_ids.unsqueeze(0).to("cuda"), pixel_values.unsqueeze(0).to("cuda")
+
         input_ids = tokenizer(text, return_tensors="pt").input_ids.to("cuda")[
             :, :args.max_length - 1
         ]
@@ -108,6 +122,7 @@ if __name__ == "__main__":
             outputs = model(
                 input_ids=input_ids,
                 pixel_values=pixel_values,
+                attention_mask=torch.ones_like(input_ids),
                 past_key_values=None,
                 use_cache=True,
             )
