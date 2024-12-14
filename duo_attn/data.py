@@ -13,15 +13,15 @@ DEFAULT_IMAGE_TOKEN = "<image>"
 print(f"HF_DATASETS_CACHE: {datasets.config.HF_DATASETS_CACHE}")
 print(f"HF_CACHE_HOME: {datasets.config.HF_CACHE_HOME}")
 
+
 def get_dataset(data_files, split="train", size=None):
     print(f"dataset files; {data_files}")
-    #print(f"data files: {data_files}")
+    # print(f"data files: {data_files}")
     dataset = load_dataset("json", data_files=data_files, split=split)
     if size is not None:
         dataset = dataset.select(range(size))
     print(f"type(dataset): {type(dataset)}")
     return dataset
-
 
 
 class MultiplePasskeyRetrievalDataset(Dataset):
@@ -122,7 +122,7 @@ class MultiplePasskeyRetrievalDataset(Dataset):
         self.context_length_intervals = torch.linspace(
             self.context_length_min,
             self.context_length_max,
-            context_lengths_num_intervals, # length of each irrelevant block of text in the haystack
+            context_lengths_num_intervals,  # length of each irrelevant block of text in the haystack
             dtype=torch.int64,
         )
 
@@ -281,6 +281,7 @@ class MultiplePasskeyRetrievalDataset(Dataset):
         labels = torch.tensor([-100] * len(context_tokens) + qa_tokens)
         return dict(input_ids=input_ids, labels=labels)
 
+
 from transformers.image_utils import get_image_size, to_numpy_array
 
 
@@ -288,49 +289,55 @@ from transformers.image_utils import get_image_size, to_numpy_array
 class DataCollator(object):
     """Collate examples for supervised fine-tuning."""
 
-    #tokenizer: transformers.PreTrainedTokenizer
+    # tokenizer: transformers.PreTrainedTokenizer
     def __init__(self, processor: transformers.LlavaProcessor):
         self.processor = processor
         self.image_token = self.processor.tokenizer.encode(DEFAULT_IMAGE_TOKEN)[-1]
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        #pad_sequence expects 1D inputs, but tokenizer has output with shape [1, X]
-        '''
+        # pad_sequence expects 1D inputs, but tokenizer has output with shape [1, X]
+        """
         print(f"length of instances: {len(instances)}")
         print(f"keys in instances: {instances[0].keys()}")
         print(f"input_ids shape: {instances[0]['input_ids'].size()}")
         print(f"pixel_values shape: {instances[0]['pixel_values'].size()}")
         print(f"labels shape: {instances[0]['labels'].size()}" )
-        '''
+        """
         input_ids, labels, pixel_values = tuple(
-            [instance[key].squeeze() for instance in instances] for key in ("input_ids", "labels", "pixel_values")
+            [instance[key].squeeze() for instance in instances]
+            for key in ("input_ids", "labels", "pixel_values")
         )
 
-        #Everywhere there is an image token (32000), we need to replace it with many instances to match the size of an image
-        #Bacuse this is all batched, we can assume all images in the batch have the same size. 
-        height, width = get_image_size(to_numpy_array(pixel_values[0])) 
+        # Everywhere there is an image token (32000), we need to replace it with many instances to match the size of an image
+        # Bacuse this is all batched, we can assume all images in the batch have the same size.
+        height, width = get_image_size(to_numpy_array(pixel_values[0]))
         num_image_tokens = (height // self.processor.patch_size) * (
             width // self.processor.patch_size
-        ) + 1 #1 == self.processor.num_additional_image_tokens 
+        ) + 1  # 1 == self.processor.num_additional_image_tokens
         if self.processor.vision_feature_select_strategy == "default":
             num_image_tokens -= 1
-        #print("Target:", num_image_tokens)
-        repeated_image = torch.ones(num_image_tokens, dtype=input_ids[0].dtype) * self.image_token
-        repeated_labels = torch.ones(num_image_tokens, dtype=labels[0].dtype) * -100 #Hardcoded 
+        # print("Target:", num_image_tokens)
+        repeated_image = (
+            torch.ones(num_image_tokens, dtype=input_ids[0].dtype) * self.image_token
+        )
+        repeated_labels = (
+            torch.ones(num_image_tokens, dtype=labels[0].dtype) * -100
+        )  # Hardcoded
         for i in range(len(input_ids)):
             ids = input_ids[i]
             lab = labels[i]
             image_idx = (ids == self.image_token).nonzero()[0]
             for j, idx in enumerate(image_idx):
-                idx += j * (num_image_tokens-1) #Correct for previous insertions
-                ids = torch.cat((ids[:idx], repeated_image, ids[idx+1:]))
-                lab = torch.cat((lab[:idx], repeated_labels, lab[idx+1:]))
+                idx += j * (num_image_tokens - 1)  # Correct for previous insertions
+                ids = torch.cat((ids[:idx], repeated_image, ids[idx + 1 :]))
+                lab = torch.cat((lab[:idx], repeated_labels, lab[idx + 1 :]))
             input_ids[i] = ids
             labels[i] = lab
 
-
         input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=self.processor.tokenizer.pad_token_id
+            input_ids,
+            batch_first=True,
+            padding_value=self.processor.tokenizer.pad_token_id,
         )
         labels = torch.nn.utils.rnn.pad_sequence(
             labels, batch_first=True, padding_value=-100
@@ -340,13 +347,18 @@ class DataCollator(object):
         ret_dict = dict(
             input_ids=input_ids,
             labels=labels,
-            attention_mask=input_ids.ne(self.processor.tokenizer.pad_token_id), #Left from text-only
+            attention_mask=input_ids.ne(
+                self.processor.tokenizer.pad_token_id
+            ),  # Left from text-only
             pixel_values=pixel_values,
         )
         for key in instances[0].keys():
-            if key not in ret_dict: #This should add the image stuff to the return dict
+            if (
+                key not in ret_dict
+            ):  # This should add the image stuff to the return dict
                 ret_dict[key] = torch.stack([instance[key] for instance in instances])
         return ret_dict
+
 
 def get_supervised_dataloader(
     dataset, processor, batch_size, num_workers=4, shuffle=True, sampler=None

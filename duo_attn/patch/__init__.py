@@ -20,7 +20,7 @@ from .llava import (
     get_llava_full_attention_heads,
     set_llava_full_attention_heads,
     map_llava_full_attention_heads,
-    LlavaForConditionalGeneration
+    LlavaForConditionalGeneration,
 )
 
 import numpy as np
@@ -63,14 +63,14 @@ def enable_duo_attention_training(
     elif "llava" == model.config.model_type:
         enable_llava_duo_attention_training(
             model,
-            sink_size, 
+            sink_size,
             recent_size,
             max_length,
             initial_value=initial_value,
             enable_ulysses_attention=enable_ulysses_attention,
-            streaming_attn_implementation=streaming_attn_implementation
+            streaming_attn_implementation=streaming_attn_implementation,
         )
-    
+
     else:
         raise ValueError(f"Model type {model.config.model_type} not supported")
 
@@ -100,10 +100,7 @@ def enable_duo_attention_eval(
         )
     elif "llava" == model.config.model_type:
         enable_llava_duo_attention_eval(
-            model, 
-            full_attention_heads,
-            sink_size,
-            recent_size
+            model, full_attention_heads, sink_size, recent_size
         )
     else:
         raise ValueError(f"Model type {model.config.model_type} not supported")
@@ -133,7 +130,7 @@ def set_full_attention_heads(model, full_attention_heads):
 
 
 def map_full_attention_heads(model, func):
-    print(f"model type: {model.config.model_type}, {type(model.config.model_type)}")
+    # print(f"model type: {model.config.model_type}, {type(model.config.model_type)}")
     if "llama" in model.config.model_type:
         return map_llama_full_attention_heads(model, func)
     elif "mistral" in model.config.model_type or "mixtral" in model.config.model_type:

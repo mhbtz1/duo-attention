@@ -5,21 +5,16 @@ from tqdm import tqdm
 import json
 import wandb
 import matplotlib.pyplot as plt
-import sys
 import inspect
-from huggingface_hub import hf_hub_download
-#print(sys.path)
+
 from huggingface_hub import login
 from utils import (
-    get_model,
     parse_args,
-    get_tokenizer,
     visualize_pruned_attention_heads,
     full_attention_heads_to_list,
     save_full_attention_heads,
     seed_everything,
 )
-import duo_attn.data
 from duo_attn.data import (
     get_dataset,
     MultiplePasskeyRetrievalDataset,
@@ -47,14 +42,26 @@ import torch.distributed as dist
 from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed._tensor import DeviceMesh
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    apply_activation_checkpointing
+    apply_activation_checkpointing,
 )
 import types
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, LlavaForConditionalGeneration, AutoProcessor, CLIPImageProcessor, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM,
+    AutoConfig,
+    BitsAndBytesConfig,
+    LlavaForConditionalGeneration,
+    AutoProcessor,
+    CLIPImageProcessor,
+    AutoTokenizer,
+)
 
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaRMSNorm, LlamaForCausalLM
+from transformers.models.llama.modeling_llama import (
+    LlamaDecoderLayer,
+    LlamaRMSNorm,
+    LlamaForCausalLM,
+)
 from transformers.models.mistral.modeling_mistral import (
     MistralDecoderLayer,
     MistralRMSNorm,
@@ -82,13 +89,14 @@ def apply_fsdp(model: torch.nn.Module, mesh, mp_policy, modules_to_shard):
     fully_shard(model, **fsdp_config)
 
 
-#Removed setup_llava_trainer, which was unused
+# Removed setup_llava_trainer, which was unused
+
 
 def convert_image_tensor_to_llava_tokens(
     image_tensor: torch.Tensor,
     image_size: int = 336,
     patch_size: int = 14,
-    num_channels: int = 3
+    num_channels: int = 3,
 ) -> torch.Tensor:
     # Add batch dimension if not present
     if len(image_tensor.shape) == 3:
@@ -100,12 +108,14 @@ def convert_image_tensor_to_llava_tokens(
         image_tensor = F.interpolate(
             image_tensor,
             size=(image_size, image_size),
-            mode='bilinear',
-            align_corners=False
+            mode="bilinear",
+            align_corners=False,
         )
 
     # Reshape into patches
-    patches = image_tensor.unfold(2, patch_size, patch_size).unfold(3, patch_size, patch_size)
+    patches = image_tensor.unfold(2, patch_size, patch_size).unfold(
+        3, patch_size, patch_size
+    )
     patches = patches.permute(0, 2, 3, 1, 4, 5)
 
     # Calculate number of patches in each dimension
@@ -113,39 +123,54 @@ def convert_image_tensor_to_llava_tokens(
 
     # Reshape into sequence of flattened patches
     image_tokens = patches.reshape(
-        batch_size,
-        num_patches * num_patches,
-        num_channels * patch_size * patch_size
+        batch_size, num_patches * num_patches, num_channels * patch_size * patch_size
     )
 
     return image_tokens
-#Copied from newer version of transformers library
+
+
+# Copied from newer version of transformers library
 def get_image_features(
-        model, pixel_values: torch.FloatTensor, vision_feature_select_strategy: str, vision_feature_layer: Optional[int] = None
-    ):
-        vision_feature_layer = ( #Added
-            vision_feature_layer if vision_feature_layer is not None else model.config.vision_feature_layer
+    model,
+    pixel_values: torch.FloatTensor,
+    vision_feature_select_strategy: str,
+    vision_feature_layer: Optional[int] = None,
+):
+    vision_feature_layer = (  # Added
+        vision_feature_layer
+        if vision_feature_layer is not None
+        else model.config.vision_feature_layer
+    )
+    image_outputs = model.vision_tower(pixel_values, output_hidden_states=True)
+    # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
+    selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+    if vision_feature_select_strategy == "default":
+        selected_image_feature = selected_image_feature[:, 1:]
+    elif vision_feature_select_strategy == "full":
+        selected_image_feature = selected_image_feature
+    else:
+        raise ValueError(
+            f"Unexpected select feature strategy: {model.config.vision_feature_select_strategy}"
         )
-        image_outputs = model.vision_tower(pixel_values, output_hidden_states=True)
-        # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
-        selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
-        if vision_feature_select_strategy == "default":
-            selected_image_feature = selected_image_feature[:, 1:]
-        elif vision_feature_select_strategy == "full":
-            selected_image_feature = selected_image_feature
-        else:
-            raise ValueError(f"Unexpected select feature strategy: {model.config.vision_feature_select_strategy}")
-        image_features = model.multi_modal_projector(selected_image_feature)
-        return image_features
+    image_features = model.multi_modal_projector(selected_image_feature)
+    return image_features
 
 
 def train(
-    args, model : LlavaForConditionalGeneration, rank, world_size, train_dataloader, optimizer, scheduler, resume_step, processor
+    args,
+    model: LlavaForConditionalGeneration,
+    rank,
+    world_size,
+    train_dataloader,
+    optimizer,
+    scheduler,
+    resume_step,
+    processor,
 ):
     local_rank = int(os.environ["LOCAL_RANK"])
 
     model.train()
-    
+
     if int(os.environ["USE_LLAVA"]):
         for params in model.multi_modal_projector.parameters():
             params.requires_grad = False
@@ -160,7 +185,7 @@ def train(
         if global_step >= args.num_steps:
             break
         for step, batch in enumerate(train_dataloader):
-            print(f"step {step} batch size: {len(batch.items())}, batch keys: {batch.keys()}")
+            # print(f"step {step} batch size: {len(batch.items())}, batch keys: {batch.keys()}")
             if global_step <= resume_step:
                 global_step += 1
                 if rank == 0:
@@ -179,7 +204,9 @@ def train(
 
             # duplicate for the two way forward (one for full attention, other with mixed sparse attention and full attention)
             input_ids = torch.cat([batch["input_ids"], batch["input_ids"]], dim=0)
-            attention_mask = torch.cat([batch["attention_mask"], batch["attention_mask"]], dim=0)
+            attention_mask = torch.cat(
+                [batch["attention_mask"], batch["attention_mask"]], dim=0
+            )
             # parallelize the processing of context between GPUs
             seq_len = input_ids.shape[1]
             seq_parallel_chunk_size = seq_len // world_size
@@ -189,32 +216,48 @@ def train(
             attn_len = attention_mask.shape[1]
             attention_parallel_chunk_size = attn_len // world_size
             attention_parallel_chunk_start = attention_parallel_chunk_size * rank
-            attention_parallel_chunk_end = attention_parallel_chunk_start + attention_parallel_chunk_size
+            attention_parallel_chunk_end = (
+                attention_parallel_chunk_start + attention_parallel_chunk_size
+            )
 
-            position_ids = torch.arange(
-                seq_parallel_chunk_start,
-                seq_parallel_chunk_end,
-            ).unsqueeze(0).to("cuda:0")
+            position_ids = (
+                torch.arange(
+                    seq_parallel_chunk_start,
+                    seq_parallel_chunk_end,
+                )
+                .unsqueeze(0)
+                .to("cuda:0")
+            )
 
-            #print(f"type(model): {type(model)}")
-            #print(f"tensor devices: {input_ids.device}, {attention_mask.device}, {position_ids.device}")
-            #print(f"datatypes: {input_ids.dtype}, {attention_mask.dtype}, {position_ids.dtype}")
+            # print(f"type(model): {type(model)}")
+            # print(f"tensor devices: {input_ids.device}, {attention_mask.device}, {position_ids.device}")
+            # print(f"datatypes: {input_ids.dtype}, {attention_mask.dtype}, {position_ids.dtype}")
 
-            if (isinstance(model, LlavaForConditionalGeneration)):
-                #print(f"type(model.language_model): {type(model.language_model)}")
-                #Do input embedding and stuff
-                #Load images, similar duplication of images to match input_ids
-                pixel_values = torch.cat([batch["pixel_values"], batch["pixel_values"]], dim=0)
-                #Text embeddings
+            if isinstance(model, LlavaForConditionalGeneration):
+                # print(f"type(model.language_model): {type(model.language_model)}")
+                # Do input embedding and stuff
+                # Load images, similar duplication of images to match input_ids
+                pixel_values = torch.cat(
+                    [batch["pixel_values"], batch["pixel_values"]], dim=0
+                )
+                # Text embeddings
                 inputs_embeds = model.get_input_embeddings()(input_ids)
-                inputs_embeds = inputs_embeds.to("cuda:0") #Should this use local_rank?
-                #Image embeddings
-                #Want to use the same strategy as was used to process images
-                image_features = get_image_features(model, pixel_values, vision_feature_select_strategy=processor.vision_feature_select_strategy)
-                #Get mask for loccations of images in text
-                #print("Image token check:", model.config.image_token_index, model.config.image_token_index in input_ids, input_ids.max(), input_ids.min())
-                #print(input_ids.shape, pixel_values.shape)
-                n_image_tokens = (input_ids == model.config.image_token_index).sum().item()
+                inputs_embeds = inputs_embeds.to(
+                    "cuda:0"
+                )  # Should this use local_rank?
+                # Image embeddings
+                # Want to use the same strategy as was used to process images
+                image_features = get_image_features(
+                    model,
+                    pixel_values,
+                    vision_feature_select_strategy=processor.vision_feature_select_strategy,
+                )
+                # Get mask for loccations of images in text
+                # print("Image token check:", model.config.image_token_index, model.config.image_token_index in input_ids, input_ids.max(), input_ids.min())
+                # print(input_ids.shape, pixel_values.shape)
+                n_image_tokens = (
+                    (input_ids == model.config.image_token_index).sum().item()
+                )
                 n_image_features = image_features.shape[0] * image_features.shape[1]
                 if n_image_tokens != n_image_features:
                     raise ValueError(
@@ -226,35 +269,43 @@ def train(
                     .expand_as(inputs_embeds)
                     .to(inputs_embeds.device)
                 )
-                #Merge image embeddings into text embeddings
-                image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
-                inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
+                # Merge image embeddings into text embeddings
+                image_features = image_features.to(
+                    inputs_embeds.device, inputs_embeds.dtype
+                )
+                inputs_embeds = inputs_embeds.masked_scatter(
+                    special_image_mask, image_features
+                )
 
                 outputs = model.language_model.model(
-                    #input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end], #.to("cuda:0"),
-                    attention_mask=attention_mask[:, attention_parallel_chunk_start:attention_parallel_chunk_end], #.to("cuda:0"),
-                    position_ids=position_ids, #.to("cuda:0"),
+                    # input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end], #.to("cuda:0"),
+                    attention_mask=attention_mask[
+                        :, attention_parallel_chunk_start:attention_parallel_chunk_end
+                    ],  # .to("cuda:0"),
+                    position_ids=position_ids,  # .to("cuda:0"),
                     inputs_embeds=inputs_embeds,
                 )
-            elif (isinstance(model, LlamaForCausalLM)):
+            elif isinstance(model, LlamaForCausalLM):
                 outputs = model(
-                    input_ids=input_ids[:, seq_parallel_chunk_start:seq_parallel_chunk_end],
-                    position_ids=position_ids
+                    input_ids=input_ids[
+                        :, seq_parallel_chunk_start:seq_parallel_chunk_end
+                    ],
+                    position_ids=position_ids,
                 )
 
-            #print(f"CausalLMOutputWithPast attributes: {dir(outputs)}")
+            # print(f"CausalLMOutputWithPast attributes: {dir(outputs)}")
             hidden_states = outputs[0]
-            #print(f"hidden size: {outputs[0].size()}")
+            # print(f"hidden size: {outputs[0].size()}")
 
             original_hidden_states = hidden_states[: args.batch_size]
             pruned_hidden_states = hidden_states[args.batch_size :]
 
-            #print(f"original_hidden_states size: {original_hidden_states.size()}")
-            #print(f"pruned_hidden_states size: {pruned_hidden_states.size()}")
+            # print(f"original_hidden_states size: {original_hidden_states.size()}")
+            # print(f"pruned_hidden_states size: {pruned_hidden_states.size()}")
 
             labels = batch["labels"][:, seq_parallel_chunk_start:seq_parallel_chunk_end]
-            
-            #print(f"labels size: {labels.size()}")
+
+            # print(f"labels size: {labels.size()}")
             label_mask = labels != -100
             num_labels = label_mask.sum()
             global_num_labels = num_labels.clone().detach()
@@ -275,8 +326,7 @@ def train(
 
             full_attention_heads = get_full_attention_heads(model)
             full_attention_heads = [
-                h.to(original_hidden_states.device)
-                for h in full_attention_heads
+                h.to(original_hidden_states.device) for h in full_attention_heads
             ]
 
             reg_loss = l1_loss(torch.cat(full_attention_heads).float())
@@ -380,17 +430,17 @@ def main(args):
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
 
-    #tokenizer = get_tokenizer(args.model_name)
-    processor = AutoProcessor.from_pretrained('llava-hf/llava-1.5-7b-hf')
+    # tokenizer = get_tokenizer(args.model_name)
+    processor = AutoProcessor.from_pretrained("llava-hf/llava-1.5-7b-hf")
     image_processor, tokenizer = processor.image_processor, processor.tokenizer
-    
+
     if args.config_name is not None:
         config = AutoConfig.from_pretrained(args.config_name)
     else:
         config = AutoConfig.from_pretrained(args.model_name)
 
     if args.rope_theta is not None:
-        #print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
+        # print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
         config.rope_theta = args.rope_theta
 
     login(token=os.getenv("HF_API_KEY"))
@@ -399,12 +449,12 @@ def main(args):
         model = LlavaForConditionalGeneration.from_pretrained(
             "llava-hf/llava-1.5-7b-hf",
             config=config,
-            #Modified these per https://huggingface.co/llava-hf/llava-1.5-7b-hf
+            # Modified these per https://huggingface.co/llava-hf/llava-1.5-7b-hf
             low_cpu_mem_usage=True,
             torch_dtype=torch.bfloat16,
-            #attn_implementation="flash_attention_2"
-            #use_flash_attention_2=True,
-            attn_implementation="eager"
+            # attn_implementation="flash_attention_2"
+            # use_flash_attention_2=True,
+            attn_implementation="eager",
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
@@ -426,7 +476,6 @@ def main(args):
         streaming_attn_implementation=args.streaming_attn_implementation,
     )
 
-
     for param in model.parameters():
         param.requires_grad = False
 
@@ -438,7 +487,7 @@ def main(args):
 
     setup()
     torch.cuda.set_device(local_rank)
-    '''
+    """
     mp_policy = MixedPrecisionPolicy(
         param_dtype=torch.bfloat16,
         reduce_dtype=torch.bfloat16,
@@ -455,7 +504,7 @@ def main(args):
         mp_policy,
         modules_to_shard={LlamaDecoderLayer, MistralDecoderLayer},
     )
-    '''
+    """
     if rank == 0:
         print(model)
         for name, param in model.named_parameters():
@@ -464,10 +513,9 @@ def main(args):
                     f"Trainable parameter: {name} with shape {param.shape}, dtype {param.dtype}, device {param.device}"
                 )
 
-    
     print(f"dataset name: {args.dataset_name}")
     print(f"data files: {args.data_files}")
-    print(f'dataset_format: {args.dataset_format}')
+    print(f"dataset_format: {args.dataset_format}")
 
     if args.dataset_format == "multiple_passkey":
         haystack_dataset = get_dataset(args.data_files, split="train")
@@ -488,8 +536,10 @@ def main(args):
         print("Variable names:", PassKeyDataset.__init__.__code__.co_varnames)
         print("Argument count:", PassKeyDataset.__init__.__code__.co_argcount)
         print("PasskeyDataset source: ", inspect.getsource(PassKeyDataset))
-        train_dataset = PassKeyDataset(haystack_dataset=haystack_dataset, processor=processor)
-    elif args.dataset_format == "menu": #TODO: pre-generate and stage a menu dataset
+        train_dataset = PassKeyDataset(
+            haystack_dataset=haystack_dataset, processor=processor
+        )
+    elif args.dataset_format == "menu":  # TODO: pre-generate and stage a menu dataset
         haystack_dataset = get_dataset(args.data_files, split="train")
         train_dataset = MenuPriceRetrievalDataset(
             haystack_dataset,
@@ -502,19 +552,18 @@ def main(args):
             context_length_max=args.context_length_max,
             context_lengths_num_intervals=args.context_lengths_num_intervals,
             depth_ratio_num_intervals=args.depth_ratio_num_intervals,
-            buffer_size=600 #Made larger to allow space for the image w/ size 577
+            buffer_size=600,  # Made larger to allow space for the image w/ size 577
         )
     elif args.dataset_format == "vqav2":
-        print('USING VQAV2')
         train_dataset = VQADataset(
             tokenizer,
             image_processor,
         )
-    
+
     else:
         raise ValueError(f"Invalid dataset format: {args.dataset_format}")
-    
-    # Note: this won't work for Llamaanymore because it is using 
+
+    # Note: this won't work for Llamaanymore because it is using
     # the modified dataloader, not the original from text-DA
     train_dataloader = get_supervised_dataloader(
         train_dataset, processor, args.batch_size, shuffle=True
@@ -560,7 +609,7 @@ def main(args):
         )
         set_full_attention_heads(model, full_attention_heads)
         resume_step = state["global_step"]
-        #print(f"Resuming from step {resume_step}")
+        # print(f"Resuming from step {resume_step}")
     else:
         resume_step = -1
 
@@ -574,12 +623,12 @@ def main(args):
         optimizer,
         scheduler,
         resume_step,
-        processor
+        processor,
     )
 
     full_attention_heads = get_full_attention_heads(model)
     full_attention_heads = [h.detach().clone() for h in full_attention_heads]
-    #full_attention_heads = [h.new_tensor() for h in full_attention_heads]
+    # full_attention_heads = [h.new_tensor() for h in full_attention_heads]
 
     if rank == 0:
         print("Training finished")
@@ -601,4 +650,3 @@ if __name__ == "__main__":
     args = parse_args()
     seed_everything(args.seed)
     main(args)
-
