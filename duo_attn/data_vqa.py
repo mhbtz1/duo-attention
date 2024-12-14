@@ -96,13 +96,15 @@ _SUB_FOLDER_OR_FILE_NAME = {
 class VQADataset(Dataset):
     def __init__(self, 
                  tokenizer: transformers.PreTrainedTokenizer,
+                 image_processor,
                  questions_path="/workspace/coco2014/v2_OpenEnded_mscoco_train2014_questions.json",
-                 images_path="/workspace/images",
+                 images_path="/workspace/coco2014/images/train2014",
                  annotations_path="/workspace/coco2014/v2_mscoco_train2014_annotations.json",
                  split="train", 
                  size=None):
 
         self.tokenizer = tokenizer
+        self.image_processor = image_processor
         self.tokenizer_encode = self._get_encoder(self.tokenizer)
         self.questions = json.load(open(questions_path, "r"))
         self.images = images_path
@@ -115,11 +117,13 @@ class VQADataset(Dataset):
 
 
     def __getitem__(self, idx):
-        question, image_file = None, "asdfjhasdkflhaslkfhaskfh"
-        while not os.path.exists(image_file):
-            question = self.questions["questions"][idx]["question"]
-            image_id = self.questions["questions"][idx]["image_id"]
-            image_file = f"{self.images}/COCO_{self.images}_{image_id:0>12}.jpg"
+        # print(f'{idx=}')
+        question = self.questions["questions"][idx]["question"]
+        image_id = self.questions["questions"][idx]["image_id"]
+        image_file = f"{self.images}/COCO_train2014_{image_id:0>12}.jpg"
+        if not os.path.exists(image_file):
+            print(f"Can't find image_file: {image_file}")
+            assert(False)
             
         answer_choices = self.annotations["annotations"][idx]["answers"] 
         answer = None
@@ -131,14 +135,14 @@ class VQADataset(Dataset):
         
         #Currently a list of answers; to get one possible answer, you can do answer_choices[0]["answer"]
         assert(self.questions["questions"][idx]["question_id"] == self.annotations["annotations"][idx]["question_id"])
-        question_tokens = self.tokenizer_encode(question["question"])
+        question_tokens = self.tokenizer_encode(question)
         answer_tokens = self.tokenizer_encode(answer)
 
         image = Image.open(image_file).convert('RGB')
         pixel_values = torch.tensor(self.image_processor(image).pixel_values[0])#.unsqueeze(0)
         
-        input_ids = torch.cat((question_tokens, answer_tokens))
-        labels = torch.cat((torch.tensor([-100] * len(question_tokens)), answer_tokens))
+        input_ids = torch.cat((torch.tensor([-200]), question_tokens, answer_tokens))
+        labels = torch.cat((torch.tensor([-100]), torch.tensor([-100] * len(question_tokens)), answer_tokens))
 
         return dict(input_ids=input_ids, labels=labels, pixel_values=pixel_values)
     
