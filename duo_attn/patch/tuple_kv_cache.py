@@ -250,7 +250,10 @@ def old_llama_for_causal_lm_forward(
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
+    cache_position = None, #Needed for forward compatability
+    num_logits_to_keep = None #Needed for forward compatability
 ) -> Union[Tuple, CausalLMOutputWithPast]:
+    #print("Recieved vales of extra args:", cache_position, num_logits_to_keep)
     output_attentions = (
         output_attentions
         if output_attentions is not None
