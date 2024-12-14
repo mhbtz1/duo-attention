@@ -13,6 +13,14 @@ from duo_attn.utils import (
 from duo_attn.patch import enable_duo_attention_eval
 from utils import bench_func
 
+from huggingface_hub import login
+from transformers import (
+    AutoModelForCausalLM,
+    AutoConfig,
+    LlavaForConditionalGeneration,
+    AutoProcessor,
+)
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -20,17 +28,40 @@ if __name__ == "__main__":
     if args.seed is not None:
         seed_everything(args.seed)
 
-    tokenizer = get_tokenizer(args.model_name)
+    processor = AutoProcessor.from_pretrained("llava-hf/llava-1.5-7b-hf")
+    image_processor, tokenizer = processor.image_processor, processor.tokenizer
+    if args.config_name is not None:
+        config = AutoConfig.from_pretrained(args.config_name)
+    else:
+        config = AutoConfig.from_pretrained(args.model_name)
+
+    if args.rope_theta is not None:
+        # print(f"Setting rope_theta from {config.rope_theta} to {args.rope_theta}")
+        config.rope_theta = args.rope_theta
+
+    login(token=os.getenv("HF_API_KEY"))
+
 
     with torch.no_grad():
-        model = load_full_attention_heads(os.path.join(args.output_dir, "full_attention_heads.tsv"))
+        #model = load_full_attention_heads(args.output_dir, filename="full_attention_heads.tsv")
+        model = LlavaForConditionalGeneration.from_pretrained(
+            "llava-hf/llava-1.5-7b-hf",
+            config=config,
+            # Modified these per https://huggingface.co/llava-hf/llava-1.5-7b-hf
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.bfloat16,
+            # attn_implementation="flash_attention_2"
+            # use_flash_attention_2=True,
+            attn_implementation="eager",
+        )
 
-    if model.config.model_type == "mistral":
-        model.model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
-    elif model.config.model_type == "llama":
-        model.model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
-    elif model.config.model_type == "llava":
-        model.model.language_model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
+
+    #if model.config.model_type == "mistral":
+    #    model.model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
+    #elif model.config.model_type == "llama":
+    #    model.model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
+    #elif model.config.model_type == "llava":
+    #    model.model.language_model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
     
     model = to_device(model, args.device)
 
