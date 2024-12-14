@@ -1,6 +1,6 @@
 import torch
 import os
-
+from duo_attn.patch import load_full_attention_heads
 from duo_attn.utils import (
     get_model,
     get_tokenizer,
@@ -23,13 +23,15 @@ if __name__ == "__main__":
     tokenizer = get_tokenizer(args.model_name)
 
     with torch.no_grad():
-        model = get_model(args.model_name)
+        model = load_full_attention_heads(os.path.join(args.output_dir, "full_attention_heads.tsv"))
 
     if model.config.model_type == "mistral":
         model.model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
     elif model.config.model_type == "llama":
         model.model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
-
+    elif model.config.model_type == "llava":
+        model.model.language_model._prepare_decoder_attention_mask = lambda *args, **kwargs: None
+    
     model = to_device(model, args.device)
 
     if args.attn_load_dir is not None:
@@ -41,7 +43,7 @@ if __name__ == "__main__":
             full_attention_heads, args.threshold, args.sparsity
         )
         enable_duo_attention_eval(
-            model,
+            model.language_model,
             full_attention_heads,
             16,
             64,
@@ -50,7 +52,7 @@ if __name__ == "__main__":
     text = "a\n\n" * args.max_length
 
     input_ids = tokenizer(text, return_tensors="pt").input_ids.to("cuda")[
-        :, : args.max_length - 1
+        :, :args.max_length - 1
     ]
 
     print(input_ids.shape)
