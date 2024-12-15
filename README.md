@@ -4,10 +4,6 @@
 ![method1](figures/method1.jpg)
 ![method2](figures/method2.jpg)
 
-## Demo
-
-https://github.com/user-attachments/assets/b372882b-bf14-4c89-a610-22724d91a415
-
 ## TL;DR
 We significantly reduce both pre-filling and decoding memory and latency for long-context LLMs without sacrificing their long-context abilities.
 
@@ -94,24 +90,6 @@ cd datasets
 wget https://huggingface.co/datasets/togethercomputer/Long-Data-Collections/resolve/main/fine-tune/booksum.jsonl.zst
 ```
 
-### Model
-To download models supported by DuoAttention:
-```bash
-mkdir -p models
-cd models
-
-# Models that DuoAttention currently supports for evaluation
-huggingface-cli download togethercomputer/Llama-2-7B-32K-Instruct --local-dir Llama-2-7B-32K-Instruct
-huggingface-cli download gradientai/Llama-3-8B-Instruct-Gradient-1048k --local-dir Llama-3-8B-Instruct-Gradient-1048k
-huggingface-cli download gradientai/Llama-3-8B-Instruct-Gradient-4194k --local-dir Llama-3-8B-Instruct-Gradient-4194k
-huggingface-cli download mistralai/Mistral-7B-Instruct-v0.2 --local-dir Mistral-7B-Instruct-v0.2
-huggingface-cli download mistralai/Mistral-7B-Instruct-v0.3 --local-dir Mistral-7B-Instruct-v0.3
-
-#  W8A8KV4 models using SmoothQuant and QServe for demo purposes
-huggingface-cli download mit-han-lab/Llama-3-8B-Instruct-Gradient-1048k-w8a8kv4-per-channel --local-dir Llama-3-8B-Instruct-Gradient-1048k-w8a8kv4-per-channel
-huggingface-cli download mit-han-lab/Llama-3-8B-Instruct-Gradient-4194k-w8a8kv4-per-channel --local-dir Llama-3-8B-Instruct-Gradient-4194k-w8a8kv4-per-channel
-```
-
 ## Quick Start for DuoAttention
 We offer a simple one-click patch to enable DuoAttention optimization on HuggingFace models, including Llama and Mistral. Pretrained retrieval head patterns for five long-context models are available in the `attn_patterns` directory: `Llama-2-7B-32K-Instruct`, `Llama-3-8B-Instruct-Gradient-1048k`, `Llama-3-8B-Instruct-Gradient-4194k`, `Mistral-7B-Instruct-v0.2`, `Mistral-7B-Instruct-v0.3`, and `Meta-Llama-3.1-8B-Instruct`. If you'd like to train your own retrieval head patterns, you can use the training script provided in the scripts directory. Below is an example of how to enable DuoAttention on the `Llama-3-8B-Instruct-Gradient-1048k` model.
 
@@ -165,23 +143,13 @@ bash scripts/run_demo.sh
 After preparing the dataset and models, you can run the training script to identify the retrieval heads. For the models we evaluated, the corresponding attention patterns are available in the `attn_patterns` directory.
 
 ```bash
-bash scripts/run_train.sh
+bash scripts/train_llava.sh
 ```
-
-### Needle in a Haystack (NIAH)
-DuoAttention provides comparable accuracy as full attention on the Needle-in-a-Haystack benchmark using 25% full attention ratio on the MHA model and 50% full attention ratio on the GQA model.
 
 ```bash
-bash scripts/run_niah.sh
+bash scripts/eval_llava.sh
 ```
 
-![niah](figures/niah.jpg)
-
-### LongBench
-
-```bash
-bash scripts/run_longbench.sh
-```
 
 DuoAttention provides better KV budget and accuracy trade-off on LongBench benchmarks.
 
@@ -192,26 +160,6 @@ DuoAttention provides better KV budget and accuracy trade-off on LongBench bench
 ```bash
 bash scripts/run_efficiency.sh
 ```
-
-- Per-token decoding latency and memory usage of DuoAttention compared to full attention across varying context sizes. DuoAttention uses a 25% retrieval head ratio for Llama-2-7B (MHA) and 50% for Llama-3-8B (GQA). DuoAttention achieves up to 2.45× memory reduction for MHA and 1.65× for GQA models, along with up to 2.13× latency reduction for MHA and 1.5× for GQA models. These reductions approach the inverse of the retrieval head ratios as context length increases. Out-of-memory (OOM) results are linearly extrapolated from measured data.
-
-![efficiency_decoding](figures/efficiency_decoding.jpg)
-
-- Pre-filling latency and memory usage of DuoAttention compared to full attention across varying
-pre-filling chunk sizes. DuoAttention uses a 25% retrieval head ratio for Llama-2-7B (MHA), pre-filling a context of 100K tokens, and a 50% ratio for Llama-3-8B (GQA), pre-filling a context of 320K tokens. As the pre-filling chunk size decreases, DuoAttention achieves up to 1.73× latency reduction for MHA and 1.63× for GQA models, with memory reductions up to 2.38× for MHA and 1.53× for GQA models.
-
-![efficiency_prefilling](figures/efficiency_prefilling.jpg)
-
-- DuoAttention’s decoding memory and latency vs. KV budget with a fixed context length. Memory and latency are reduced linearly when the ratio of retrieval heads is reduced. DuoAttention
-achieves up to 2.55× memory reduction for MHA and 1.67× for GQA models, along with up to 2.18× latency reduction for MHA and 1.50× for GQA models.
-
-![efficiency_curve](figures/efficiency_curve.jpg)
-
-- Combined with 8-bit weight and 4-bit KV cache quantization, DuoAttention can accommodate 3.3 million tokens on a single A100-80G GPU for the Llama-3-8B model.
-
-<p align="center">
-<img src="figures/kv_capacity.jpg" alt="kv_capacity" width="400"/>
-</p>
 
 ## Citation
 
