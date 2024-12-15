@@ -103,6 +103,10 @@ class MenuPriceRetrievalDataset(Dataset):
         self.image_path = os.getenv("FOOD_IMAGES") 
         if not self.image_path:
             self.image_path = "/data/cb/dschaffe/vlm/llava/menu_images/MAFood121/images"
+        if os.getenv("MENU_DEBUG"):
+            self.debug = True
+        else:
+            self.debug = False
         subdirs = [d for d in os.listdir(self.image_path) if os.path.isdir(os.path.join(self.image_path, d))]
         self.FOODS = subdirs 
         #breakpoint()
@@ -266,7 +270,8 @@ class MenuPriceRetrievalDataset(Dataset):
         
         image_class=self.FOODS[menu_indices[order_idx]]
         image_file = self._choose_image(image_class)
-        #print("using image:", image_file)
+        if self.debug:
+            print("using image:", image_file)
         image = Image.open(image_file).convert('RGB')
         pixel_values = torch.tensor(self.image_processor(image).pixel_values[0])#.unsqueeze(0)
         #breakpoint()
