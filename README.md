@@ -4,10 +4,6 @@
 ![method1](figures/method1.jpg)
 ![method2](figures/method2.jpg)
 
-## Demo
-
-https://github.com/user-attachments/assets/b372882b-bf14-4c89-a610-22724d91a415
-
 ## TL;DR
 We significantly reduce both pre-filling and decoding memory and latency for long-context LLMs without sacrificing their long-context abilities.
 
@@ -94,24 +90,6 @@ cd datasets
 wget https://huggingface.co/datasets/togethercomputer/Long-Data-Collections/resolve/main/fine-tune/booksum.jsonl.zst
 ```
 
-### Model
-To download models supported by DuoAttention:
-```bash
-mkdir -p models
-cd models
-
-# Models that DuoAttention currently supports for evaluation
-huggingface-cli download togethercomputer/Llama-2-7B-32K-Instruct --local-dir Llama-2-7B-32K-Instruct
-huggingface-cli download gradientai/Llama-3-8B-Instruct-Gradient-1048k --local-dir Llama-3-8B-Instruct-Gradient-1048k
-huggingface-cli download gradientai/Llama-3-8B-Instruct-Gradient-4194k --local-dir Llama-3-8B-Instruct-Gradient-4194k
-huggingface-cli download mistralai/Mistral-7B-Instruct-v0.2 --local-dir Mistral-7B-Instruct-v0.2
-huggingface-cli download mistralai/Mistral-7B-Instruct-v0.3 --local-dir Mistral-7B-Instruct-v0.3
-
-#  W8A8KV4 models using SmoothQuant and QServe for demo purposes
-huggingface-cli download mit-han-lab/Llama-3-8B-Instruct-Gradient-1048k-w8a8kv4-per-channel --local-dir Llama-3-8B-Instruct-Gradient-1048k-w8a8kv4-per-channel
-huggingface-cli download mit-han-lab/Llama-3-8B-Instruct-Gradient-4194k-w8a8kv4-per-channel --local-dir Llama-3-8B-Instruct-Gradient-4194k-w8a8kv4-per-channel
-```
-
 ## Quick Start for DuoAttention
 We offer a simple one-click patch to enable DuoAttention optimization on HuggingFace models, including Llama and Mistral. Pretrained retrieval head patterns for five long-context models are available in the `attn_patterns` directory: `Llama-2-7B-32K-Instruct`, `Llama-3-8B-Instruct-Gradient-1048k`, `Llama-3-8B-Instruct-Gradient-4194k`, `Mistral-7B-Instruct-v0.2`, `Mistral-7B-Instruct-v0.3`, and `Meta-Llama-3.1-8B-Instruct`. If you'd like to train your own retrieval head patterns, you can use the training script provided in the scripts directory. Below is an example of how to enable DuoAttention on the `Llama-3-8B-Instruct-Gradient-1048k` model.
 
@@ -165,23 +143,13 @@ bash scripts/run_demo.sh
 After preparing the dataset and models, you can run the training script to identify the retrieval heads. For the models we evaluated, the corresponding attention patterns are available in the `attn_patterns` directory.
 
 ```bash
-bash scripts/run_train.sh
+bash scripts/train_llava.sh
 ```
-
-### Needle in a Haystack (NIAH)
-DuoAttention provides comparable accuracy as full attention on the Needle-in-a-Haystack benchmark using 25% full attention ratio on the MHA model and 50% full attention ratio on the GQA model.
 
 ```bash
-bash scripts/run_niah.sh
+bash scripts/eval_llava.sh
 ```
 
-![niah](figures/niah.jpg)
-
-### LongBench
-
-```bash
-bash scripts/run_longbench.sh
-```
 
 DuoAttention provides better KV budget and accuracy trade-off on LongBench benchmarks.
 
